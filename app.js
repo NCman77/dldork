@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.15: 修正 setDrawOrder 邏輯，防止其觸發 history 開合
+ * V25.15: 新增大小順序/開出順序切換邏輯
  */
 import { GAME_CONFIG } from './game_config.js';
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
@@ -79,18 +79,7 @@ const App = {
             }); 
         } catch(e) { console.error("Firebase Init Error:", e); this.loadProfilesLocal(); }
     },
-    updateAuthUI(user) {
-        const loginBtn = document.getElementById('btn-login'); const userInfo = document.getElementById('user-info');
-        const userName = document.getElementById('user-name'); const dot = document.getElementById('login-status-dot');
-        if (user) {
-            loginBtn.classList.add('hidden'); userInfo.classList.remove('hidden');
-            userName.innerText = `Hi, ${user.displayName}`;
-            dot.classList.remove('bg-stone-300'); dot.classList.add('bg-green-500');
-        } else {
-            loginBtn.classList.remove('hidden'); userInfo.classList.add('hidden');
-            dot.classList.remove('bg-green-500'); dot.classList.add('bg-stone-300');
-        }
-    },
+    updateAuthUI(user) { /* ... */ },
     async loginGoogle() { const { getAuth, signInWithPopup, GoogleAuthProvider } = window.firebaseModules; await signInWithPopup(getAuth(), new GoogleAuthProvider()); },
     async logoutGoogle() { await window.firebaseModules.signOut(window.firebaseModules.getAuth()); this.state.profiles = []; this.loadProfilesLocal(); },
     async loadProfilesCloud(uid) { const { doc, getDoc } = window.firebaseModules; const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', uid, 'profiles', 'main'); const snap = await getDoc(ref); this.state.profiles = snap.exists() ? snap.data().list || [] : []; this.renderProfileSelect(); this.renderProfileList(); },
@@ -292,7 +281,6 @@ const App = {
         const gameName = this.state.currentGame;
         const gameDef = GAME_CONFIG.GAMES[gameName];
 
-        // 只有大樂透和威力彩才顯示順序控制項
         if (gameDef && (gameDef.type === 'lotto' || gameDef.type === 'power')) {
             container.classList.remove('hidden'); 
         } else {
@@ -301,18 +289,17 @@ const App = {
         }
 
         container.innerHTML = `
-            <span class="text-xs font-bold text-stone-500 whitespace-nowrap">顯示順序:</span>
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
             <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
         `;
     },
 
-    // [NEW FIX] 設定顯示順序，但不觸發 toggleHistory
+    // [NEW] 設定顯示順序
     setDrawOrder(order) {
         if (this.state.drawOrder === order) return;
         this.state.drawOrder = order;
         this.renderDrawOrderControls(); // 刷新按鈕狀態
-        this.renderHistoryList(this.state.rawData[this.state.currentGame].slice(0, 5)); // 僅刷新列表，不呼叫 updateDashboard 避免重複邏輯
+        this.updateDashboard(); // 刷新歷史列表
     },
 
     renderSubModeUI(gameDef) { /* ... */ },
