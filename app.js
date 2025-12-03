@@ -1,10 +1,10 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.4: 扁平化架構重構 - App 直接調度所有子模組
+ * V25.5: 恢復 ZIP 讀取能力 & 修正系統狀態顯示邏輯
  */
 import { GAME_CONFIG } from './game_config.js';
-import { getGanZhi, monteCarloSim, calculateZone } from './utils.js';
+import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData } from './utils.js';
 
 // 修正引用路徑：指向 algo/ 資料夾
 import { algoStat } from './algo/algo_stat.js';
@@ -21,6 +21,13 @@ import { applyWuxingLogic } from './algo/algo_wuxing.js';
 
 const CONFIG = {
     JSON_URL: 'data/lottery-data.json',
+    ZIP_URLS: [
+        'data/2021.zip',
+        'data/2022.zip',
+        'data/2023.zip',
+        'data/2024.zip',
+        'data/2025.zip'
+    ]
 };
 
 const App = {
@@ -169,8 +176,84 @@ const App = {
     },
     clearFortune() { const pid=document.getElementById('profile-select').value; const p=this.state.profiles.find(x=>x.id==pid); if(p){delete p.fortune2025; this.saveProfiles(); this.onProfileChange();} },
 
-    // --- 核心資料與 UI ---
-    async initFetch() { /*...*/ try { const response = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`); if (!response.ok) throw new Error("Data Error"); const fullData = await response.json(); this.state.rawData = fullData.games || fullData; this.state.rawJackpots = fullData.jackpots || {}; for (let game in this.state.rawData) { this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); } document.getElementById('system-status-text').innerText = "系統連線正常"; document.getElementById('system-status-text').className = "text-green-600"; document.getElementById('system-status-icon').className = "w-2 h-2 rounded-full bg-green-500"; if(fullData.last_updated) document.getElementById('last-update-time').innerText = fullData.last_updated.split(' ')[0]; this.renderGameButtons(); } catch(e) { document.getElementById('system-status-text').innerText = "離線模式"; this.renderGameButtons(); } },
+    // --- 核心資料與 UI (修復 ZIP 讀取與系統狀態) ---
+    async initFetch() {
+        const statusText = document.getElementById('system-status-text');
+        const statusIcon = document.getElementById('system-status-icon');
+        
+        try {
+            // 1. 讀取基礎 JSON
+            const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
+            let baseData = {};
+            if (jsonRes.ok) {
+                const jsonData = await jsonRes.json();
+                baseData = jsonData.games || jsonData;
+                this.state.rawJackpots = jsonData.jackpots || {};
+                if(jsonData.last_updated) document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
+            } else {
+                console.warn('JSON data fetch failed');
+            }
+
+            // 2. 讀取所有 ZIP 檔 (2021~2025)
+            const zipPromises = CONFIG.ZIP_URLS.map(url => fetchAndParseZip(url));
+            const zipResults = await Promise.all(zipPromises);
+
+            // 3. 合併資料
+            const mergedData = mergeLotteryData({ games: baseData }, zipResults);
+            
+            // 4. 處理日期格式
+            this.state.rawData = mergedData.games || {};
+            for (let game in this.state.rawData) { 
+                this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
+            }
+
+            // 5. 判斷系統狀態 (邏輯修正)
+            let hasLatestData = false;
+            // 檢查任意一個遊戲是否有今天的開獎資料 (簡單判斷：是否有三天內的資料)
+            const today = new Date();
+            const threeDaysAgo = new Date(today.setDate(today.getDate() - 3));
+            
+            for (let game in this.state.rawData) {
+                if (this.state.rawData[game].length > 0) {
+                    const lastDate = this.state.rawData[game][0].date;
+                    if (lastDate >= threeDaysAgo) {
+                        hasLatestData = true;
+                        break;
+                    }
+                }
+            }
+            
+            // 6. 更新 UI 狀態
+            const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
+            
+            if (dataCount === 0) {
+                // 完全沒抓到資料
+                statusText.innerText = "系統連線異常";
+                statusText.className = "text-red-600 font-bold";
+                statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
+            } else if (hasLatestData) {
+                // 有抓到資料且有近期的
+                statusText.innerText = "系統連線正常";
+                statusText.className = "text-green-600 font-bold";
+                statusIcon.className = "w-2 h-2 rounded-full bg-green-500";
+            } else {
+                 // 有資料但都是舊的
+                statusText.innerText = "系統連線異常 (資料過期)";
+                statusText.className = "text-red-600 font-bold";
+                statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
+            }
+
+            this.renderGameButtons(); 
+
+        } catch(e) { 
+            console.error("Critical Data Error:", e);
+            statusText.innerText = "系統連線異常";
+            statusText.className = "text-red-600 font-bold";
+            statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
+            this.renderGameButtons(); 
+        } 
+    },
+
     renderGameButtons() { /*...*/ const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
     updateDashboard() { /*...*/ const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); this.renderHistoryList(data.slice(0, 5)); },
     renderSubModeUI(gameDef) { /*...*/ const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
