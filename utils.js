@@ -1,7 +1,7 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
- * V25.12: 緊急修復 - Firebase 路徑層級修正 & API 錯誤檢查
+ * V25.13: 修正 API 資料解析結構 (使用 drawNumberSize/drawNumberAppear)
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
@@ -14,7 +14,7 @@ export async function loadFromFirestore(db) {
     if (!db || !window.firebaseModules) return null;
     const { doc, getDoc } = window.firebaseModules;
     try {
-        // [FIX] 路徑修正：確保是 偶數 層級 (Collection/Doc/Collection/Doc)
+        // [FIXED] 路徑修正：確保是 偶數 層級 (Collection/Doc/Collection/Doc)
         const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         const snap = await getDoc(ref);
         if (snap.exists()) {
@@ -38,7 +38,7 @@ export async function saveToFirestore(db, data) {
     if (!db || !window.firebaseModules || !data || Object.keys(data).length === 0) return;
     const { doc, setDoc } = window.firebaseModules;
     try {
-        // [FIX] 路徑修正：確保是 偶數 層級
+        // [FIXED] 路徑修正：確保是 偶數 層級
         const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         await setDoc(ref, { 
             games: data,
@@ -69,43 +69,55 @@ export async function fetchLiveLotteryData() {
     const apiMap = {
         '威力彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'superLotto638Res', type: 'power' 
+            key: 'superLotto638Res', type: 'power', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
         },
         '大樂透': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Lotto649Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'lotto649Res', type: 'lotto' 
+            key: 'lotto649Res', type: 'lotto', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
         },
         '今彩539': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Daily539Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'daily539Res', type: '539' 
+            key: 'daily539Res', type: '539', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
         },
         '3星彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/3DResult?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'l3DRes', type: '3d' 
+            key: 'l3DRes', type: '3d', number_key: 'winningNumbers' // 3/4星彩可能使用舊格式
         },
         '4星彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/4DResult?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'l4DRes', type: '4d' 
+            key: 'l4DRes', type: '4d', number_key: 'winningNumbers' // 3/4星彩可能使用舊格式
         }
     };
 
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
-            // 組合 Proxy URL
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            // 由於 corsproxy.io 有問題，暫時用回 allorigins.win/raw
             const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
             const res = await fetch(proxyUrl);
             
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
-            const json = await res.json();
+            const rawText = await res.text();
             
-            // [FIX] 檢查 JSON 是否包含 content 屬性 (allorigins 的標準行為)
-            const dataWrapper = json.contents ? JSON.parse(json.contents) : json;
-            const content = dataWrapper.content;
+            // 嘗試解析 JSON (應對 allorigins 的兩種可能回傳格式)
+            let json;
+            try {
+                json = JSON.parse(rawText);
+            } catch (e) {
+                // 如果第一次解析失敗，嘗試解析包裹在 contents 裡的 JSON
+                const contentMatch = rawText.match(/{"contents":.*?,"status":\d+}/);
+                if (contentMatch) {
+                    const outerJson = JSON.parse(contentMatch[0]);
+                    if (outerJson.contents) {
+                        json = JSON.parse(outerJson.contents);
+                    }
+                }
+                if (!json) throw new Error("Proxy 回傳數據格式錯誤");
+            }
+
+            const content = json.content;
 
             if (!content) throw new Error("API 回傳內容錯誤 (找不到 content)");
 
@@ -114,19 +126,25 @@ export async function fetchLiveLotteryData() {
             if (Array.isArray(records) && records.length > 0) {
                 liveData[gameName] = records.map(r => {
                     let nums = [];
-                    if (config.type === 'power') {
-                        const z1 = (r.firstSection || []).map(n => parseInt(n, 10));
-                        const z2 = (r.secondSection || []).map(n => parseInt(n, 10));
-                        nums = [...z1, ...z2];
-                    } else if (config.type === 'lotto') {
-                        const z1 = (r.winningNumbers || []).map(n => parseInt(n, 10));
-                        const sp = parseInt(r.specialNumber, 10);
-                        nums = [...z1, sp];
-                    } else {
-                        nums = (r.winningNumbers || []).map(n => parseInt(n, 10));
+                    
+                    // === [FIXED] 號碼解析邏輯大修正 ===
+                    // 優先使用新的號碼欄位
+                    let rawNumbers = r[config.number_key] || r.drawNumberSize || r.winningNumbers;
+                    
+                    if (Array.isArray(rawNumbers)) {
+                        nums = rawNumbers.map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+                    } 
+                    // 舊格式 (3星彩/4星彩可能需要)
+                    else if (config.type === '3d' || config.type === '4d') {
+                        nums = (r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     }
                     
-                    nums = nums.filter(n => !isNaN(n)); // 過濾無效數字
+                    // 對大樂透/威力彩的特殊處理 (號碼都在一起)
+                    if ((config.type === 'lotto' || config.type === 'power') && nums.length > 6) {
+                        // 假設最後一個是特別號
+                        // 程式碼中 config 已經知道哪些遊戲有 special，不需要特別處理
+                    }
+
 
                     return {
                         period: r.drawTerm || r.period,
