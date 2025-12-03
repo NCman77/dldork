@@ -1,10 +1,10 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.7: 恢復 Live Data 抓取、資料持久化儲存與動態年份支援
+ * V25.8: 整合官方 API 直連、Firebase 雲端同步與動態年份驗證
  */
 import { GAME_CONFIG } from './game_config.js';
-import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache } from './utils.js';
+import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore } from './utils.js';
 
 import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
@@ -17,20 +17,20 @@ import { applyNameLogic } from './algo/algo_name.js';
 import { applyStarsignLogic } from './algo/algo_starsign.js';
 import { applyWuxingLogic } from './algo/algo_wuxing.js';
 
-// 動態產生直到 2030 年或當年的 ZIP URL
+// 動態產生 ZIP URL (只到當下年份)
 const currentYear = new Date().getFullYear();
-const targetYear = Math.max(currentYear, 2030); // 支援到 2030
 const zipUrls = [];
-for (let y = 2021; y <= targetYear; y++) {
-    // 只有當該年份 <= 當前年份時才真的去抓 (避免抓未來不存在的檔案)
-    if (y <= currentYear) {
-        zipUrls.push(`data/${y}.zip`);
-    }
+for (let y = 2021; y <= currentYear; y++) {
+    zipUrls.push(`data/${y}.zip`);
 }
+
+// 驗證訊息
+console.log(`🛠️ [System] 啟動年份: ${currentYear}`);
+console.log(`🛠️ [System] ZIP 預載清單:`, zipUrls);
 
 const CONFIG = {
     JSON_URL: 'data/lottery-data.json',
-    ZIP_URLS: zipUrls // 使用動態生成的 URL 列表
+    ZIP_URLS: zipUrls
 };
 
 const App = {
@@ -45,7 +45,7 @@ const App = {
     init() {
         this.initFirebase();
         this.selectSchool('balance');
-        this.populateYearSelect(); // 這裡也會改成動態
+        this.populateYearSelect(); // 動態年份
         this.populateMonthSelect();
         this.initFetch();
         this.bindEvents();
@@ -144,7 +144,7 @@ const App = {
     },
     clearFortune() { const pid=document.getElementById('profile-select').value; const p=this.state.profiles.find(x=>x.id==pid); if(p){delete p.fortune2025; this.saveProfiles(); this.onProfileChange();} },
 
-    // --- Core Data Logic with Live Fetch & Storage ---
+    // --- Core Data Logic with Live Fetch & Cloud Sync ---
     async initFetch() {
         const statusText = document.getElementById('system-status-text');
         const statusIcon = document.getElementById('system-status-icon');
@@ -164,28 +164,34 @@ const App = {
             const zipPromises = CONFIG.ZIP_URLS.map(url => fetchAndParseZip(url));
             const zipResults = await Promise.all(zipPromises);
 
-            // 3. 嘗試抓取 Live Data (最新資料)
-            // 這是您要求的「抓取最新開獎資料」部分
-            const liveData = await fetchLiveLotteryData();
-            
-            // 4. 合併所有資料 (Live > ZIP > JSON)
-            // 這裡我們會把抓到的 liveData 也合併進去
-            const mergedData = mergeLotteryData({ games: baseData }, zipResults, liveData);
-            
-            // 5. 儲存到 LocalStorage (資料持久化)
-            // 這樣下次重新整理時，最新的資料還會保留
-            if (liveData && Object.keys(liveData).length > 0) {
-                saveToCache(liveData);
-                console.log("最新資料已儲存至本地快取");
+            // 3. 讀取 Firestore 雲端資料 (上次有人抓過的最新資料)
+            let firestoreData = {};
+            if (this.state.db) {
+                firestoreData = await loadFromFirestore(this.state.db);
             }
 
-            // 6. 處理日期格式
+            // 4. 嘗試抓取 Live Data (最新資料) - API 直連
+            const liveData = await fetchLiveLotteryData();
+            
+            // 5. 如果抓到 Live Data，同步到 Firebase 與 LocalStorage
+            if (liveData && Object.keys(liveData).length > 0) {
+                saveToCache(liveData); // 單機備份
+                if (this.state.db) {
+                    await saveToFirestore(this.state.db, liveData); // 雲端同步
+                }
+            }
+
+            // 6. 合併所有資料 (Live > Firestore > ZIP > JSON)
+            // 確保資料最完整
+            const mergedData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
+            
+            // 7. 處理日期格式
             this.state.rawData = mergedData.games || {};
             for (let game in this.state.rawData) { 
                 this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
             }
 
-            // 7. 系統狀態判斷 (嚴格紅綠燈)
+            // 8. 系統狀態判斷 (嚴格紅綠燈)
             let hasLatestData = false;
             const today = new Date();
             const threeDaysAgo = new Date();
@@ -235,14 +241,12 @@ const App = {
     renderHotStats(elId, dataset) { /*...*/ const el = document.getElementById(elId); if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; } const freq = {}; dataset.forEach(d => d.numbers.forEach(n => freq[n] = (freq[n]||0)+1)); const sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 5); el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join(''); },
     selectSchool(school) { /*...*/ this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="text-base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
     
-    // 修正年份下拉選單：動態生成直到 2030 (或更久)
+    // 修正年份下拉選單：只顯示到當下年份
     populateYearSelect() { 
         const yearSelect = document.getElementById('search-year'); 
         const currentY = new Date().getFullYear();
-        // 您要求的：更新到 2030 年的變化
-        const targetY = Math.max(currentY, 2030);
         
-        for (let y = 2021; y <= targetY; y++) { 
+        for (let y = 2021; y <= currentY; y++) { 
             const opt = document.createElement('option'); 
             opt.value = y; 
             opt.innerText = `${y}`; 
