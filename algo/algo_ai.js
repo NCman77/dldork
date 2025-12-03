@@ -2,7 +2,8 @@
  * algo_ai.js
  * AI 學派：基於時間序列權重與趨勢動能分析
  */
-import { calculateZone, getLotteryStats } from './utils.js';
+// 修正引用路徑：utils.js 在上一層
+import { calculateZone, getLotteryStats } from '../utils.js';
 
 export function algoAI({ data, gameDef }) {
     const stats = data.length > 0 ? getLotteryStats(data, gameDef.range, gameDef.count) : null;
