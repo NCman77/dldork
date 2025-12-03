@@ -3,7 +3,8 @@
  * 聰明包牌模組：提供全包保底、正彩複式與旋轉矩陣包牌策略
  * (包含完整三種模式，邏輯零遺漏)
  */
-import { calculateZone } from './utils.js';
+// 修正引用路徑：utils.js 在上一層
+import { calculateZone } from '../utils.js';
 
 export function algoSmartWheel(data, gameDef) {
     let results = [];
