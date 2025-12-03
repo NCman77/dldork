@@ -1,7 +1,7 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
- * V25.11: 緊急修復 - Firebase 路徑層級修正 & 更換 CORS Proxy
+ * V25.12: 緊急修復 - Firebase 路徑層級修正 & API 錯誤檢查
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
@@ -24,7 +24,8 @@ export async function loadFromFirestore(db) {
             console.log("☁️ [Firebase] 雲端尚無資料 (等待寫入)");
         }
     } catch (e) {
-        console.warn("Firebase 讀取失敗:", e);
+        // 權限不足的錯誤會在這裡顯示，提示用戶檢查 Firebase 規則
+        console.error("Firebase 讀取失敗 (請檢查規則是否已發布):", e);
     }
     return null;
 }
@@ -39,15 +40,13 @@ export async function saveToFirestore(db, data) {
     try {
         // [FIX] 路徑修正：確保是 偶數 層級
         const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
-        // merge: true 代表不覆蓋整個文件，只更新有變動的欄位
         await setDoc(ref, { 
             games: data,
             last_updated: new Date().toISOString()
         }, { merge: true });
         console.log("☁️ [Firebase] 最新開獎號碼已同步至雲端！");
     } catch (e) {
-        // 這裡會印出詳細錯誤，方便除錯
-        console.error("Firebase 寫入失敗:", e);
+        console.error("Firebase 寫入失敗 (請檢查規則是否已發布):", e);
     }
 }
 
@@ -55,7 +54,7 @@ export async function saveToFirestore(db, data) {
 
 /**
  * 透過 Proxy 抓取台彩官方 API
- * 策略：更換為 corsproxy.io (更穩定) + 時間戳記
+ * 策略：使用 allorigins.win + 時間戳記防快取
  */
 export async function fetchLiveLotteryData() {
     const now = new Date();
@@ -93,20 +92,22 @@ export async function fetchLiveLotteryData() {
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
-            // [FIX] 更換 Proxy 為 corsproxy.io，並確保 timestamp 加在內部 URL
+            // 組合 Proxy URL
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            // corsproxy.io 用法：直接接在 ? 後面
-            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+            // 由於 corsproxy.io 有問題，暫時用回 allorigins.win/raw
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
-            console.log(`Trying fetch: ${gameName}`);
             const res = await fetch(proxyUrl);
             
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
             const json = await res.json();
-            const content = json.content; 
+            
+            // [FIX] 檢查 JSON 是否包含 content 屬性 (allorigins 的標準行為)
+            const dataWrapper = json.contents ? JSON.parse(json.contents) : json;
+            const content = dataWrapper.content;
 
-            if (!content) throw new Error("API 回傳結構改變 (找不到 content)");
+            if (!content) throw new Error("API 回傳內容錯誤 (找不到 content)");
 
             const records = content[config.key];
 
@@ -125,7 +126,7 @@ export async function fetchLiveLotteryData() {
                         nums = (r.winningNumbers || []).map(n => parseInt(n, 10));
                     }
                     
-                    nums = nums.filter(n => !isNaN(n));
+                    nums = nums.filter(n => !isNaN(n)); // 過濾無效數字
 
                     return {
                         period: r.drawTerm || r.period,
@@ -133,7 +134,7 @@ export async function fetchLiveLotteryData() {
                         numbers: nums
                     };
                 });
-                console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆`);
+                console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆 (最新日期: ${liveData[gameName][0].date})`);
             } else {
                 console.warn(`⚠️ [API Empty] ${gameName} 無資料`);
             }
@@ -203,7 +204,7 @@ export function loadFromCache() {
     try { return JSON.parse(localStorage.getItem('lottery_live_cache')); } catch(e){return null;}
 }
 
-// --- 演算法核心 ---
+// --- 演算法核心 (維持不變) ---
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], customWeights={}, stats={}, wuxingContext={}) {
     const max = range; const min = (mode.includes('digit')) ? 0 : 1; 
     let weights = customWeights;
