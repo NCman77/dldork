@@ -2,9 +2,9 @@
  * algo_Ziwei.js
  * 【純紫微斗數模組】
  * 職責：接收權重並根據紫微流年四化與 Profile 進行權重修改
- * 依賴：僅依賴 utils.js，不依賴其他 algo 檔
+ * 依賴：僅依賴 utils.js (修正為上一層)
  */
-import { getGanZhi, getFlyingStars, getHeTuNumbers } from './utils.js';
+import { getGanZhi, getFlyingStars, getHeTuNumbers } from '../utils.js';
 
 export function applyZiweiLogic(wuxingWeights, wuxingTagMap, gameDef, profile) {
     const currentYear = new Date().getFullYear();
