@@ -119,6 +119,7 @@ export async function fetchLiveLotteryData() {
                 // 嘗試解析 JSON
                 json = JSON.parse(rawText);
             } catch (e) {
+                // 如果解析失敗，則拋出錯誤，讓重試機制處理或最終報錯
                 throw new Error("Proxy 回傳數據格式錯誤，無法解析 JSON");
             }
 
