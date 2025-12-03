@@ -1,19 +1,20 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.5: 恢復 ZIP 讀取能力 & 修正系統狀態顯示邏輯
+ * V25.6: 全面修復路徑引用錯誤 (Fix Relative Paths) & 恢復 ZIP 讀取 & 嚴格系統狀態
  */
 import { GAME_CONFIG } from './game_config.js';
+// 修正引用：utils.js 在同一層
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData } from './utils.js';
 
-// 修正引用路徑：指向 algo/ 資料夾
+// 修正引用：algo 檔案在 algo/ 資料夾
 import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
 import { algoBalance } from './algo/algo_balance.js';
 import { algoAI } from './algo/algo_ai.js';
 import { algoSmartWheel } from './algo/algo_smartwheel.js';
 
-// 扁平化引入子模組 (修正路徑)
+// 扁平化引入子模組
 import { applyZiweiLogic } from './algo/algo_Ziwei.js';
 import { applyNameLogic } from './algo/algo_name.js';
 import { applyStarsignLogic } from './algo/algo_starsign.js';
@@ -21,6 +22,7 @@ import { applyWuxingLogic } from './algo/algo_wuxing.js';
 
 const CONFIG = {
     JSON_URL: 'data/lottery-data.json',
+    // 恢復 ZIP 讀取
     ZIP_URLS: [
         'data/2021.zip',
         'data/2022.zip',
@@ -207,11 +209,12 @@ const App = {
                 this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
             }
 
-            // 5. 判斷系統狀態 (邏輯修正)
+            // 5. 判斷系統狀態 (嚴格邏輯)
             let hasLatestData = false;
-            // 檢查任意一個遊戲是否有今天的開獎資料 (簡單判斷：是否有三天內的資料)
+            // 檢查任意一個遊戲是否有今天的開獎資料 (寬容值：3天內，因週末可能無開獎)
             const today = new Date();
-            const threeDaysAgo = new Date(today.setDate(today.getDate() - 3));
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(today.getDate() - 3);
             
             for (let game in this.state.rawData) {
                 if (this.state.rawData[game].length > 0) {
@@ -319,7 +322,6 @@ const App = {
                 const profile = this.state.profiles.find(p => p.id == pid);
 
                 // 2. 分別呼叫各獨立顧問
-                // (注意：這些函式都只負責修改傳入的 weights 物件)
                 applyZiweiLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
                 applyNameLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
                 applyStarsignLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
@@ -331,7 +333,7 @@ const App = {
                 let pickZone2 = [];
                 if (gameDef.type === 'power') pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
 
-                // 4. 生成評語 (從原 algoWuxing 搬移過來的邏輯)
+                // 4. 生成評語
                 const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
                 const dominant = tags.sort((a,b) => tags.filter(v => v===a).length - tags.filter(v => v===b).length).pop();
                 const starName = dominant.replace('化祿','').replace('正財','').replace('偏財','').replace('旺數','').replace('姓名補','');
@@ -348,7 +350,7 @@ const App = {
             if (result) {
                 // 蒙地卡羅驗證 (通用)
                 if(!monteCarloSim(result.numbers, gameDef)) {
-                    // 若失敗則重跑 (簡化處理)
+                    // 若失敗則重跑
                     if(this.state.currentSchool === 'stat') result = algoStat(params);
                 }
                 this.renderRow(result, i+1);
