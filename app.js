@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.12: 修復 Firebase 路徑、UI undefined 崩潰與嚴格紅綠燈邏輯
+ * V25.14: 實作歷史紀錄的「大小順序/開出順序」切換功能
  */
 import { GAME_CONFIG } from './game_config.js';
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
@@ -35,7 +35,8 @@ const App = {
         currentGame: "", currentSubMode: null,
         currentSchool: "balance",
         filterPeriod: "", filterYear: "", filterMonth: "",
-        profiles: [], user: null, db: null, apiKey: ""
+        profiles: [], user: null, db: null, apiKey: "",
+        drawOrder: 'appear' // [NEW] 新增：'appear' (開出順序) 或 'size' (大小順序)
     },
 
     init() {
@@ -271,7 +272,47 @@ const App = {
     },
 
     renderGameButtons() { /*...*/ const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
-    updateDashboard() { /*...*/ const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); this.renderHistoryList(data.slice(0, 5)); },
+    updateDashboard() { /*...*/ const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); 
+    
+        // [NEW] 渲染順序切換按鈕
+        this.renderDrawOrderControls(); 
+
+        this.renderHistoryList(data.slice(0, 5)); 
+    },
+
+    // [NEW] 渲染大小順序/開出順序的控制按鈕
+    renderDrawOrderControls() {
+        const container = document.getElementById('draw-order-controls');
+        if (!container) return;
+        
+        container.classList.remove('hidden'); // 預設顯示
+
+        container.innerHTML = `
+            <span class="text-[10px] text-stone-400 font-bold mr-2">顯示順序:</span>
+            <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
+            <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
+        `;
+        // 確保 CSS 樣式存在 (這裡使用 Tailwind 類別模擬)
+        document.head.insertAdjacentHTML('beforeend', `
+            <style>
+                .order-btn {
+                    @apply px-2 py-1 text-[10px] rounded-full border border-stone-300 text-stone-600 transition-colors duration-150;
+                }
+                .order-btn.active {
+                    @apply bg-emerald-500 border-emerald-500 text-white shadow-md;
+                }
+            </style>
+        `);
+    },
+
+    // [NEW] 設定顯示順序
+    setDrawOrder(order) {
+        if (this.state.drawOrder === order) return;
+        this.state.drawOrder = order;
+        this.renderDrawOrderControls(); // 刷新按鈕狀態
+        this.updateDashboard(); // 刷新歷史列表
+    },
+
     renderSubModeUI(gameDef) { /*...*/ const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
     toggleRules() { document.getElementById('game-rules-content').classList.toggle('hidden'); },
     renderHistoryList(data) { 
@@ -280,7 +321,13 @@ const App = {
         data.forEach(item => { 
             let numsHtml = ""; 
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; 
-            const numbers = item.numbers || []; 
+            
+            // [FIXED] 根據 drawOrder 選擇要顯示的號碼列表
+            const sourceNumbers = this.state.drawOrder === 'size' && item.numbers_size && item.numbers_size.length > 0
+                                ? item.numbers_size // 大小順序
+                                : item.numbers || []; // 開出順序 (numbers 預設為開出順序)
+
+            const numbers = sourceNumbers.filter(n => typeof n === 'number');
             
             if (gameDef.type === 'digit') { 
                 numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join(''); 
@@ -288,7 +335,7 @@ const App = {
                 const len = numbers.length; 
                 let normal = [], special = null; 
                 
-                // [FIXED] 修正大樂透/威力彩的特別號分離邏輯
+                // 修正大樂透/威力彩的特別號分離邏輯
                 if ((gameDef.type === 'power' || gameDef.special) && len > gameDef.count) { 
                     special = numbers[len-1]; 
                     normal = numbers.slice(0, len-1); 
@@ -296,7 +343,6 @@ const App = {
                     normal = numbers; 
                 } 
                 
-                // 確保 normal 裡面的元素是數字
                 numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join(''); 
                 if (special !== null && typeof special === 'number') {
                     numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
