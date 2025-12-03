@@ -16,10 +16,11 @@ export async function fetchAndParseZip(url) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const blob = await response.blob();
-        const zip = await JSZip.loadAsync(blob);
         
-        // 假設 ZIP 裡只有一個主要的 JSON 檔，或者我們找特定名稱的
-        // 這裡遍歷所有檔案，找到第一個 .json 結尾的
+        // 使用 window.JSZip 確保能存取到 CDN 載入的套件
+        const zip = await window.JSZip.loadAsync(blob);
+        
+        // 遍歷所有檔案，找到第一個 .json 結尾的
         let jsonContent = null;
         const files = Object.keys(zip.files);
         for (const filename of files) {
@@ -47,7 +48,6 @@ export function mergeLotteryData(baseData, zipDataList) {
     if (!merged.games) merged.games = {}; // 確保結構
 
     zipDataList.forEach(zipJson => {
-        // 假設 ZIP 裡的 JSON 結構也是 { games: { ... } } 或者直接是 { '大樂透': [...] }
         const sourceGames = zipJson.games || zipJson; 
         
         for (const [gameName, records] of Object.entries(sourceGames)) {
@@ -71,7 +71,6 @@ export function mergeLotteryData(baseData, zipDataList) {
     
     return merged;
 }
-
 
 // --- 核心選號引擎 (The Core Engine) ---
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], customWeights={}, stats={}, wuxingContext={}) {
