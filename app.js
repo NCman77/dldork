@@ -280,23 +280,23 @@ const App = {
         data.forEach(item => { 
             let numsHtml = ""; 
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; 
-            const numbers = item.numbers || []; // [FIX] 確保 numbers 存在
+            const numbers = item.numbers || []; 
             
             if (gameDef.type === 'digit') { 
                 numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join(''); 
             } else { 
                 const len = numbers.length; 
                 let normal = [], special = null; 
-                if (gameDef.type === 'power' && len > 6) { 
-                    special = numbers[len-1]; 
-                    normal = numbers.slice(0, len-1); 
-                } else if (gameDef.special && len > gameDef.count) { 
+                
+                // [FIXED] 修正大樂透/威力彩的特別號分離邏輯
+                if ((gameDef.type === 'power' || gameDef.special) && len > gameDef.count) { 
                     special = numbers[len-1]; 
                     normal = numbers.slice(0, len-1); 
                 } else { 
                     normal = numbers; 
                 } 
-                // [FIX] 確保 normal 裡面的元素是數字
+                
+                // 確保 normal 裡面的元素是數字
                 numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join(''); 
                 if (special !== null && typeof special === 'number') {
                     numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
