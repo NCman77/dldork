@@ -5,17 +5,19 @@
  */
 import { GAME_CONFIG } from './game_config.js';
 import { getGanZhi, monteCarloSim, calculateZone } from './utils.js';
-import { algoStat } from './algo_stat.js';
-import { algoPattern } from './algo_pattern.js';
-import { algoBalance } from './algo_balance.js';
-import { algoAI } from './algo_ai.js';
-import { algoSmartWheel } from './algo_smartwheel.js';
 
-// 扁平化引入子模組
-import { applyZiweiLogic } from './algo_Ziwei.js';
-import { applyNameLogic } from './algo_name.js';
-import { applyStarsignLogic } from './algo_starsign.js';
-import { applyWuxingLogic } from './algo_wuxing.js';
+// 修正引用路徑：指向 algo/ 資料夾
+import { algoStat } from './algo/algo_stat.js';
+import { algoPattern } from './algo/algo_pattern.js';
+import { algoBalance } from './algo/algo_balance.js';
+import { algoAI } from './algo/algo_ai.js';
+import { algoSmartWheel } from './algo/algo_smartwheel.js';
+
+// 扁平化引入子模組 (修正路徑)
+import { applyZiweiLogic } from './algo/algo_Ziwei.js';
+import { applyNameLogic } from './algo/algo_name.js';
+import { applyStarsignLogic } from './algo/algo_starsign.js';
+import { applyWuxingLogic } from './algo/algo_wuxing.js';
 
 const CONFIG = {
     JSON_URL: 'data/lottery-data.json',
