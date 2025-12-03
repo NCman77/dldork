@@ -1,7 +1,8 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
- * V25.15: 最終 CORS 修正 - 換回 allorigins.win 並加入重試機制 (Retry)
+ * V25.13: 修正 API 資料解析結構 (使用 drawNumberSize/drawNumberAppear)
+ * V25.14: 最終 CORS Proxy 修正 (更換為 thingproxy.freeboard.io)
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
@@ -47,28 +48,9 @@ export async function saveToFirestore(db, data) {
 
 // --- 官方 API 抓取功能 (核心) ---
 
-// 實作指數退避重試邏輯
-async function fetchWithRetry(proxyUrl, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const res = await fetch(proxyUrl);
-            if (!res.ok) {
-                // 如果是 4xx 或 5xx 錯誤，仍可能重試
-                throw new Error(`HTTP Status ${res.status}`);
-            }
-            return res;
-        } catch (error) {
-            console.warn(`Retry attempt ${i + 1} failed: ${error.message}`);
-            if (i === maxRetries - 1) throw error;
-            // 指數退避: 延遲 2^i 秒 (1s, 2s, 4s...)
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-        }
-    }
-}
-
 /**
  * 透過 Proxy 抓取台彩官方 API
- * 策略：換回 allorigins.win/raw 並加入重試機制
+ * 策略：更換為 thingproxy.freeboard.io/fetch/ + 時間戳記防快取
  */
 export async function fetchLiveLotteryData() {
     const now = new Date();
@@ -79,7 +61,7 @@ export async function fetchLiveLotteryData() {
 
     console.log(`📡 [API] 啟動背景爬蟲 (${startMonth} ~ ${endMonth})...`);
 
-    // 官方 API 對照表
+    // 官方 API 對照表 - 修正 number_key 的使用邏輯
     const apiMap = {
         '威力彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
@@ -106,44 +88,52 @@ export async function fetchLiveLotteryData() {
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
+            // [FIX] 更換 Proxy 為 thingproxy.freeboard.io/fetch/
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            const proxyUrl = `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(targetUrl)}`;
 
-            // 使用重試機制
-            const res = await fetchWithRetry(proxyUrl, 3);
+            const res = await fetch(proxyUrl);
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
             const rawText = await res.text();
             
             let json;
             try {
-                // 嘗試解析 JSON
+                // [FIX] 嘗試解析 Proxy 傳回的 JSON
                 json = JSON.parse(rawText);
             } catch (e) {
-                // 如果解析失敗，則拋出錯誤，讓重試機制處理或最終報錯
                 throw new Error("Proxy 回傳數據格式錯誤，無法解析 JSON");
             }
 
+            // 台彩 API 的資料都在 content 屬性下
             const content = json.content;
 
             if (!content) throw new Error("API 回傳內容錯誤 (找不到 content)");
 
-            // [FIX] 增加容錯：確保 records 是陣列
-            const records = Array.isArray(content[config.key]) ? content[config.key] : [];
+            const records = content[config.key];
 
-            if (records.length > 0) {
+            if (Array.isArray(records) && records.length > 0) {
                 liveData[gameName] = records.map(r => {
                     // 號碼來源優先順序：
+                    // 1. drawNumberAppear (最新格式)
+                    // 2. drawNumberSize (大小順序)
+                    // 3. winningNumbers (舊格式)
                     let numbersAppear = (r.drawNumberAppear || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     let numbersSize = (r.drawNumberSize || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     
-                    // 最終顯示號碼（優先使用開出順序）
-                    let finalNumbers = numbersAppear.length > 0 ? numbersAppear : numbersSize;
+                    // [FIX] 3星彩和4星彩沒有 special number，所以直接使用 numbersAppear
+                    let finalNumbers = (config.type === '3d' || config.type === '4d' || config.type === '539') 
+                                        ? numbersAppear 
+                                        : (config.type === 'lotto' || config.type === 'power') && numbersAppear.length > 0
+                                            ? numbersAppear // 大樂透/威力彩的號碼都包含在 drawNumberAppear 中
+                                            : numbersAppear; // 預設
 
                     return {
                         period: r.drawTerm || r.period,
                         date: r.lotteryDate || r.date,
-                        numbers: finalNumbers, 
-                        numbers_size: numbersSize 
+                        numbers: finalNumbers, // 這裡儲存開出順序的號碼
+                        numbers_size: numbersSize // 額外儲存大小順序的號碼
                     };
                 });
                 console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆 (最新日期: ${liveData[gameName][0].date})`);
