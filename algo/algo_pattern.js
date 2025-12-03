@@ -2,7 +2,9 @@
  * algo_pattern.js
  * 關聯學派：捕捉號碼間的拖牌效應、鄰號與尾數群聚
  */
-import { calculateZone, getLotteryStats } from './utils.js';
+// 修正引用路徑：utils.js 在上一層
+import { calculateZone, getLotteryStats } from '../utils.js';
+// 修正引用路徑：同層引用
 import { algoStat } from './algo_stat.js';
 
 export function algoPattern({ data, gameDef }) {
