@@ -4,6 +4,7 @@
  * V25.14: 實作歷史紀錄的「大小順序/開出順序」切換功能
  */
 import { GAME_CONFIG } from './game_config.js';
+// 引用更新後的 utils.js
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
 
 import { algoStat } from './algo/algo_stat.js';
@@ -144,7 +145,7 @@ const App = {
         if(p&&p.fortune2025){ 
             d.classList.remove('hidden'); 
             let html = `<div class="font-bold mb-1">📅 流年運勢:</div><p>${p.fortune2025.year_analysis}</p>`;
-            if(p.fortune2025.name_analysis) html += `<div class="mt-2 pt-2 border-t border-pink-100"><div class="font-bold mb-1">✍️ 姓名靈動:</div><p class="text-[10px]">${p.fortune2025.name_analysis.rationale}</p></div>`;
+            if(p.fortune2025.name_analysis) html += `<div class=\"mt-2 pt-2 border-t border-pink-100\"><div class=\"font-bold mb-1\">✍️ 姓名靈動:</div><p class=\"text-[10px]\">${p.fortune2025.name_analysis.rationale}</p></div>`;
             d.innerHTML = html;
             document.getElementById('btn-calc-ai').innerText="🔄 重新批算"; 
             document.getElementById('btn-clear-ai').classList.remove('hidden'); 
@@ -283,26 +284,25 @@ const App = {
     // [NEW] 渲染大小順序/開出順序的控制按鈕
     renderDrawOrderControls() {
         const container = document.getElementById('draw-order-controls');
-        if (!container) return;
+        // 只有大樂透和威力彩才顯示順序控制項
+        if (!container) return; // 如果 index.html 沒有這個容器，則跳過
         
-        container.classList.remove('hidden'); // 預設顯示
+        const gameName = this.state.currentGame;
+        const gameDef = GAME_CONFIG.GAMES[gameName];
+
+        if (gameDef && (gameDef.type === 'lotto' || gameDef.type === 'power')) {
+            container.classList.remove('hidden'); 
+        } else {
+            // 539, 3星彩, 4星彩 不顯示此控制項
+            container.classList.add('hidden'); 
+            return;
+        }
 
         container.innerHTML = `
             <span class="text-[10px] text-stone-400 font-bold mr-2">顯示順序:</span>
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
             <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
         `;
-        // 確保 CSS 樣式存在 (這裡使用 Tailwind 類別模擬)
-        document.head.insertAdjacentHTML('beforeend', `
-            <style>
-                .order-btn {
-                    @apply px-2 py-1 text-[10px] rounded-full border border-stone-300 text-stone-600 transition-colors duration-150;
-                }
-                .order-btn.active {
-                    @apply bg-emerald-500 border-emerald-500 text-white shadow-md;
-                }
-            </style>
-        `);
     },
 
     // [NEW] 設定顯示順序
@@ -322,7 +322,7 @@ const App = {
             let numsHtml = ""; 
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; 
             
-            // [FIXED] 根據 drawOrder 選擇要顯示的號碼列表
+            // 根據 drawOrder 選擇要顯示的號碼列表
             const sourceNumbers = this.state.drawOrder === 'size' && item.numbers_size && item.numbers_size.length > 0
                                 ? item.numbers_size // 大小順序
                                 : item.numbers || []; // 開出順序 (numbers 預設為開出順序)
