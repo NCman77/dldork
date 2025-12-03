@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.11: 修復資料過期狀態判斷與連線異常顯示
+ * V25.12: 修復 Firebase 路徑、UI undefined 崩潰與嚴格紅綠燈邏輯
  */
 import { GAME_CONFIG } from './game_config.js';
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
@@ -74,8 +74,7 @@ const App = {
                 this.updateAuthUI(user); 
                 if (user) { 
                     await this.loadProfilesCloud(user.uid); 
-                    // [FIX] 路徑修正：讀取 API Key 的位置也必須是偶數層級
-                    // 原始: artifacts/lottery-app/users/uid/settings/api (6層，正確)
+                    // 讀取 API Key
                     const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', user.uid, 'settings', 'api'); 
                     const snap = await getDoc(ref); 
                     if(snap.exists()) { this.state.apiKey = snap.data().key; document.getElementById('gemini-api-key').value = this.state.apiKey; } 
@@ -203,7 +202,6 @@ const App = {
             }
 
             // [Phase 4] 最終狀態檢查 (嚴格紅綠燈)
-            // [FIX] 務必在最後執行，確保覆蓋掉 loading 狀態
             this.checkSystemStatus();
 
         } catch(e) { 
@@ -276,9 +274,39 @@ const App = {
     updateDashboard() { /*...*/ const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); this.renderHistoryList(data.slice(0, 5)); },
     renderSubModeUI(gameDef) { /*...*/ const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
     toggleRules() { document.getElementById('game-rules-content').classList.toggle('hidden'); },
-    renderHistoryList(data) { /*...*/ const list = document.getElementById('history-list'); list.innerHTML = ''; data.forEach(item => { let numsHtml = ""; const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; if (gameDef.type === 'digit') { numsHtml = item.numbers.map(n => `<span class="ball-sm">${n}</span>`).join(''); } else { const len = item.numbers.length; let normal = [], special = null; if (gameDef.type === 'power') { special = item.numbers[len-1]; normal = item.numbers.slice(0, len-1); } else if (gameDef.special) { special = item.numbers[len-1]; normal = item.numbers.slice(0, len-1); } else { normal = item.numbers; } numsHtml = normal.map(n => `<span class="ball-sm">${n}</span>`).join(''); if (special !== null) numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`; } list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`; }); },
+    renderHistoryList(data) { 
+        const list = document.getElementById('history-list'); 
+        list.innerHTML = ''; 
+        data.forEach(item => { 
+            let numsHtml = ""; 
+            const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; 
+            const numbers = item.numbers || []; // [FIX] 確保 numbers 存在
+            
+            if (gameDef.type === 'digit') { 
+                numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join(''); 
+            } else { 
+                const len = numbers.length; 
+                let normal = [], special = null; 
+                if (gameDef.type === 'power' && len > 6) { 
+                    special = numbers[len-1]; 
+                    normal = numbers.slice(0, len-1); 
+                } else if (gameDef.special && len > gameDef.count) { 
+                    special = numbers[len-1]; 
+                    normal = numbers.slice(0, len-1); 
+                } else { 
+                    normal = numbers; 
+                } 
+                // [FIX] 確保 normal 裡面的元素是數字
+                numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join(''); 
+                if (special !== null && typeof special === 'number') {
+                    numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
+                }
+            } 
+            list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`; 
+        }); 
+    },
     renderHotStats(elId, dataset) { /*...*/ const el = document.getElementById(elId); if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; } const freq = {}; dataset.forEach(d => d.numbers.forEach(n => freq[n] = (freq[n]||0)+1)); const sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 5); el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join(''); },
-    selectSchool(school) { /*...*/ this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="text-base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
+    selectSchool(school) { /*...*/ this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
 
     // 呼叫專家級演算法 (委託給 utils)
     runPrediction() {
