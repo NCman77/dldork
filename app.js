@@ -1,10 +1,9 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.10: 漸進式渲染 (秒開) + Firebase 自動同步 + API 實時抓取
+ * V25.11: 修復資料過期狀態判斷與連線異常顯示
  */
 import { GAME_CONFIG } from './game_config.js';
-// 引用修復版的 utils
 import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
 
 import { algoStat } from './algo/algo_stat.js';
@@ -45,7 +44,7 @@ const App = {
         this.populateYearSelect();
         this.populateMonthSelect();
         
-        // 啟動漸進式資料載入
+        // 啟動資料載入
         this.initFetch();
         this.bindEvents();
     },
@@ -63,19 +62,20 @@ const App = {
     async initFirebase() {
         if (typeof window.firebaseModules === 'undefined') { this.loadProfilesLocal(); return; }
         const { initializeApp, getAuth, onAuthStateChanged, getFirestore, getDoc, doc } = window.firebaseModules;
-        // 使用您專案的 Config
         const firebaseConfig = { apiKey: "AIzaSyBatltfrvZ5AXixdZBcruClqYrA-9ihsI0", authDomain: "lottery-app-bd106.firebaseapp.com", projectId: "lottery-app-bd106", storageBucket: "lottery-app-bd106.firebasestorage.app", messagingSenderId: "13138331714", appId: "1:13138331714:web:194ac3ff9513d19d9845db" };
         
         try { 
             const app = initializeApp(firebaseConfig); 
             const auth = getAuth(app); 
-            this.state.db = getFirestore(app); // 初始化 Firestore
+            this.state.db = getFirestore(app); 
             
             onAuthStateChanged(auth, async (user) => { 
                 this.state.user = user; 
                 this.updateAuthUI(user); 
                 if (user) { 
                     await this.loadProfilesCloud(user.uid); 
+                    // [FIX] 路徑修正：讀取 API Key 的位置也必須是偶數層級
+                    // 原始: artifacts/lottery-app/users/uid/settings/api (6層，正確)
                     const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', user.uid, 'settings', 'api'); 
                     const snap = await getDoc(ref); 
                     if(snap.exists()) { this.state.apiKey = snap.data().key; document.getElementById('gemini-api-key').value = this.state.apiKey; } 
@@ -122,7 +122,7 @@ const App = {
         const ganZhi = getGanZhi(currentYear);
         const useName = document.getElementById('check-name') ? document.getElementById('check-name').checked : false;
 
-        let prompt = `你現在是資深的國學易經術數領域專家...`; // (省略 Prompt 內容以節省空間，與前版相同)
+        let prompt = `你現在是資深的國學易經術數領域專家...`; 
         if (useName) { prompt += `【姓名學特別指令】...`; }
         prompt += `請務必回傳純 JSON 格式...`; 
 
@@ -158,7 +158,7 @@ const App = {
 
     // --- Core Data Logic (Progressive Rendering + Sync) ---
     async initFetch() {
-        // 設定初始狀態：黃燈 (檢查中)
+        // [FIX] 設定初始狀態：黃燈 (連線更新中)
         this.setSystemStatus('loading');
 
         try {
@@ -180,37 +180,36 @@ const App = {
             let firestoreData = {};
             if (this.state.db) { firestoreData = await loadFromFirestore(this.state.db); }
 
-            // 第一次合併與渲染 (使用者立刻看到舊資料)
+            // 第一次合併與渲染
             const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
             this.processAndRender(initialData);
 
             // [Phase 2] 背景執行：抓取 Live Data (不阻塞畫面)
             console.log("🚀 [System] 背景啟動 Live API 抓取...");
             
-            // 注意：fetchLiveLotteryData 已包含 Proxy 和時間戳記邏輯
             const liveData = await fetchLiveLotteryData();
 
-            // [Phase 3] 熱更新：如果有抓到資料，更新介面並寫入 Firebase
+            // [Phase 3] 熱更新
             if (liveData && Object.keys(liveData).length > 0) {
                 console.log("🚀 [System] Live Data 抓取成功，更新介面...");
                 saveToCache(liveData); 
                 
-                // 關鍵：將新資料寫回 Firebase (透過 utils.js 的 saveToFirestore)
                 if (this.state.db) { 
                     await saveToFirestore(this.state.db, liveData); 
                 }
                 
-                // 第二次合併與渲染 (插入新資料)
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
             }
 
             // [Phase 4] 最終狀態檢查 (嚴格紅綠燈)
+            // [FIX] 務必在最後執行，確保覆蓋掉 loading 狀態
             this.checkSystemStatus();
 
         } catch(e) { 
             console.error("Critical Data Error:", e);
-            this.setSystemStatus('error');
+            // 發生錯誤也強制檢查狀態 (會變成紅燈)
+            this.checkSystemStatus(); 
             this.renderGameButtons(); 
         } 
     },
@@ -224,7 +223,7 @@ const App = {
         this.renderGameButtons();
     },
 
-    setSystemStatus(status) {
+    setSystemStatus(status, dateStr = "") {
         const text = document.getElementById('system-status-text');
         const icon = document.getElementById('system-status-icon');
         if (status === 'loading') {
@@ -236,7 +235,7 @@ const App = {
             text.className = "text-green-600 font-bold";
             icon.className = "w-2 h-2 rounded-full bg-green-500";
         } else {
-            text.innerText = "系統連線異常 (資料過期)";
+            text.innerText = `資料過期 ${dateStr ? `(${dateStr})` : ""}`;
             text.className = "text-red-600 font-bold";
             icon.className = "w-2 h-2 rounded-full bg-red-500";
         }
@@ -244,24 +243,30 @@ const App = {
 
     checkSystemStatus() {
         let hasLatestData = false;
+        let latestDateObj = null;
         const today = new Date();
         const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(today.getDate() - 3);
+        threeDaysAgo.setDate(today.getDate() - 3); // 定義過期標準：3天
         
         // 檢查任意遊戲是否有近三天的資料
         for (let game in this.state.rawData) {
             if (this.state.rawData[game].length > 0) {
                 const lastDate = this.state.rawData[game][0].date;
+                if (!latestDateObj || lastDate > latestDateObj) {
+                    latestDateObj = lastDate;
+                }
                 if (lastDate >= threeDaysAgo) {
                     hasLatestData = true;
-                    break;
                 }
             }
         }
 
         const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
+        const dateStr = latestDateObj ? latestDateObj.toLocaleDateString() : "無資料";
+
+        // [FIX] 嚴格判斷：如果資料過期，強制顯示紅燈
         if (dataCount === 0 || !hasLatestData) {
-            this.setSystemStatus('error');
+            this.setSystemStatus('error', dateStr);
         } else {
             this.setSystemStatus('success');
         }
@@ -299,12 +304,10 @@ const App = {
                 case 'pattern': result = algoPattern(params); break;
                 case 'balance': result = algoBalance(params); break;
                 case 'ai': result = algoAI(params); break;
-                case 'wuxing': result = this.algoWuxing(params); break; // 注意：五行邏輯需要 Profile 資料，這裡需傳入
+                case 'wuxing': result = this.algoWuxing(params); break; 
             }
             if (result) {
-                // 蒙地卡羅驗證
                 if(!monteCarloSim(result.numbers, gameDef)) {
-                   // 若失敗，回退到統計學派
                    result = algoStat(params);
                 }
                 this.renderRow(result, i+1);
@@ -312,41 +315,29 @@ const App = {
         }
     },
     
-    // 將五行邏輯整合回 runPrediction (因為需要存取 this.state.profiles)
+    // 將五行邏輯整合回 runPrediction 
     algoWuxing({ gameDef }) {
         const wuxingWeights = {};
         const wuxingTagMap = {};
-        // 1. 基礎權重
         for(let k=(gameDef.type==='digit'?0:1); k<=gameDef.range; k++) {
             wuxingWeights[k] = 10;
-            // ... (省略重複的 Tag 邏輯，與 utils 內的 algoWuxing 相同) ...
-            // 這裡為了簡化，實際上我們應該呼叫 applyWuxingLogic 等函式
-            // 但因為那些函式已經 import 進來了，我們直接用：
         }
-        
-        // 重新初始化 tagMap (避免 undefined)
         for(let k=(gameDef.type==='digit'?0:1); k<=gameDef.range; k++) {
              wuxingWeights[k] = 10;
-             wuxingTagMap[k] = "基礎運數"; // 預設值
+             wuxingTagMap[k] = "基礎運數"; 
         }
-
         const pid = document.getElementById('profile-select').value;
         const profile = this.state.profiles.find(p => p.id == pid);
-
         applyZiweiLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
         applyNameLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
         applyStarsignLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
         applyWuxingLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
-
         const wuxingContext = { tagMap: wuxingTagMap };
         const pickZone1 = calculateZone([], gameDef.range, gameDef.count, false, 'wuxing', [], wuxingWeights, null, wuxingContext);
         let pickZone2 = [];
         if (gameDef.type === 'power') pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
-
         const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
         const dominant = tags.sort((a,b) => tags.filter(v => v===a).length - tags.filter(v => v===b).length).pop();
-        const starName = dominant.replace('化祿','').replace('正財','').replace('偏財','').replace('旺數','').replace('姓名補','');
-        
         return { 
             numbers: [...pickZone1, ...pickZone2], 
             groupReason: `💡 流年格局：[${dominant}] 主導。`
