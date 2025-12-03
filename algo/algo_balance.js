@@ -2,7 +2,8 @@
  * algo_balance.js
  * 平衡學派：基於 AC 值、黃金和值與結構平衡的選號邏輯
  */
-import { calculateZone, getLotteryStats, calcAC } from './utils.js';
+// 修正引用路徑：utils.js 在上一層
+import { calculateZone, getLotteryStats, calcAC } from '../utils.js';
 
 export function algoBalance({ data, gameDef, subModeId }) {
     let bestSet = []; let bestReason = "";
