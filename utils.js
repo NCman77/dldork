@@ -1,7 +1,77 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
+ * V25.5: 新增 ZIP 解壓縮與資料合併工具
  */
+
+// --- 資料處理工具 (Data Handling Tools) ---
+
+/**
+ * 從 ZIP 檔案中讀取並解析 JSON 資料
+ * @param {string} url - ZIP 檔案的路徑
+ * @returns {Promise<Object>} - 解析後的 JSON 物件
+ */
+export async function fetchAndParseZip(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const blob = await response.blob();
+        const zip = await JSZip.loadAsync(blob);
+        
+        // 假設 ZIP 裡只有一個主要的 JSON 檔，或者我們找特定名稱的
+        // 這裡遍歷所有檔案，找到第一個 .json 結尾的
+        let jsonContent = null;
+        const files = Object.keys(zip.files);
+        for (const filename of files) {
+            if (filename.endsWith('.json')) {
+                const fileData = await zip.files[filename].async('string');
+                jsonContent = JSON.parse(fileData);
+                break; 
+            }
+        }
+        return jsonContent || {};
+    } catch (e) {
+        console.warn(`Failed to load ZIP from ${url}:`, e);
+        return {};
+    }
+}
+
+/**
+ * 合併多個來源的彩券資料，並過濾掉重複或無效的項目
+ * @param {Object} baseData - 基礎資料 (from lottery-data.json)
+ * @param {Array<Object>} zipDataList - 來自 ZIP 檔的資料陣列
+ * @returns {Object} - 合併後的完整資料
+ */
+export function mergeLotteryData(baseData, zipDataList) {
+    const merged = JSON.parse(JSON.stringify(baseData)); // Deep copy
+    if (!merged.games) merged.games = {}; // 確保結構
+
+    zipDataList.forEach(zipJson => {
+        // 假設 ZIP 裡的 JSON 結構也是 { games: { ... } } 或者直接是 { '大樂透': [...] }
+        const sourceGames = zipJson.games || zipJson; 
+        
+        for (const [gameName, records] of Object.entries(sourceGames)) {
+            if (!Array.isArray(records)) continue;
+            
+            if (!merged.games[gameName]) merged.games[gameName] = [];
+            
+            // 合併並去重 (以期數 period 為鍵)
+            const existingPeriods = new Set(merged.games[gameName].map(r => r.period));
+            records.forEach(record => {
+                if (!existingPeriods.has(record.period)) {
+                    merged.games[gameName].push(record);
+                    existingPeriods.add(record.period);
+                }
+            });
+            
+            // 重新排序 (日期新到舊)
+            merged.games[gameName].sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+    });
+    
+    return merged;
+}
+
 
 // --- 核心選號引擎 (The Core Engine) ---
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], customWeights={}, stats={}, wuxingContext={}) {
