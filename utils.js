@@ -1,20 +1,21 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
- * V25.10: 針對官方 API 結構進行深度適配與 Firebase 同步
+ * V25.11: 緊急修復 - Firebase 路徑層級修正 & 更換 CORS Proxy
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
 
 /**
  * 從 Firebase 讀取最新資料
- * 路徑: artifacts/lottery-app/public/data/latest_draws
+ * 修正路徑: artifacts/lottery-app/public_data/latest_draws (4層，偶數)
  */
 export async function loadFromFirestore(db) {
     if (!db || !window.firebaseModules) return null;
     const { doc, getDoc } = window.firebaseModules;
     try {
-        const ref = doc(db, 'artifacts', 'lottery-app', 'public', 'data', 'latest_draws');
+        // [FIX] 路徑修正：確保是 偶數 層級 (Collection/Doc/Collection/Doc)
+        const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         const snap = await getDoc(ref);
         if (snap.exists()) {
             console.log("🔥 [Firebase] 雲端有資料，下載中...");
@@ -30,12 +31,14 @@ export async function loadFromFirestore(db) {
 
 /**
  * 將抓到的最新資料寫入 Firebase (讓其他裝置同步)
+ * 修正路徑: artifacts/lottery-app/public_data/latest_draws
  */
 export async function saveToFirestore(db, data) {
     if (!db || !window.firebaseModules || !data || Object.keys(data).length === 0) return;
     const { doc, setDoc } = window.firebaseModules;
     try {
-        const ref = doc(db, 'artifacts', 'lottery-app', 'public', 'data', 'latest_draws');
+        // [FIX] 路徑修正：確保是 偶數 層級
+        const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         // merge: true 代表不覆蓋整個文件，只更新有變動的欄位
         await setDoc(ref, { 
             games: data,
@@ -43,7 +46,8 @@ export async function saveToFirestore(db, data) {
         }, { merge: true });
         console.log("☁️ [Firebase] 最新開獎號碼已同步至雲端！");
     } catch (e) {
-        console.warn("Firebase 寫入失敗:", e);
+        // 這裡會印出詳細錯誤，方便除錯
+        console.error("Firebase 寫入失敗:", e);
     }
 }
 
@@ -51,12 +55,11 @@ export async function saveToFirestore(db, data) {
 
 /**
  * 透過 Proxy 抓取台彩官方 API
- * 策略：使用 api.allorigins.win/raw + 時間戳記防快取
+ * 策略：更換為 corsproxy.io (更穩定) + 時間戳記
  */
 export async function fetchLiveLotteryData() {
     const now = new Date();
     const year = now.getFullYear();
-    // 鎖定「整年」區間：YYYY-01 ~ YYYY-12
     const startMonth = `${year}-01`;
     const endMonth = `${year}-12`;
     const timestamp = new Date().getTime(); // 防快取隨機數
@@ -90,61 +93,55 @@ export async function fetchLiveLotteryData() {
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
-            // 組合 Proxy URL
-            // encodeURIComponent 是必須的，否則 & 符號會截斷 Proxy 參數
+            // [FIX] 更換 Proxy 為 corsproxy.io，並確保 timestamp 加在內部 URL
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            // corsproxy.io 用法：直接接在 ? 後面
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
+            console.log(`Trying fetch: ${gameName}`);
             const res = await fetch(proxyUrl);
+            
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
             const json = await res.json();
-            const content = json.content; // 台彩 API 的資料都在 content 屬性下
+            const content = json.content; 
 
             if (!content) throw new Error("API 回傳結構改變 (找不到 content)");
 
-            // 根據遊戲類型找對應的 key (例如 lotto649Res)
             const records = content[config.key];
 
             if (Array.isArray(records) && records.length > 0) {
-                // 資料正規化 (轉成我們 App 看得懂的格式)
                 liveData[gameName] = records.map(r => {
                     let nums = [];
-                    // 解析號碼
                     if (config.type === 'power') {
-                        // 威力彩：第一區 + 第二區
                         const z1 = (r.firstSection || []).map(n => parseInt(n, 10));
                         const z2 = (r.secondSection || []).map(n => parseInt(n, 10));
                         nums = [...z1, ...z2];
                     } else if (config.type === 'lotto') {
-                        // 大樂透：一般號 + 特別號
                         const z1 = (r.winningNumbers || []).map(n => parseInt(n, 10));
                         const sp = parseInt(r.specialNumber, 10);
                         nums = [...z1, sp];
                     } else {
-                        // 539, 3星, 4星
                         nums = (r.winningNumbers || []).map(n => parseInt(n, 10));
                     }
                     
-                    // 過濾無效數字 (NaN)
                     nums = nums.filter(n => !isNaN(n));
 
                     return {
                         period: r.drawTerm || r.period,
-                        date: r.lotteryDate || r.date, // 台彩有時用 lotteryDate 有時用 date
+                        date: r.lotteryDate || r.date,
                         numbers: nums
                     };
                 });
-                console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆資料 (最新日期: ${liveData[gameName][0].date})`);
+                console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆`);
             } else {
-                console.warn(`⚠️ [API Empty] ${gameName} 抓取成功但無資料`);
+                console.warn(`⚠️ [API Empty] ${gameName} 無資料`);
             }
         } catch (e) {
             console.error(`❌ [API Failed] ${gameName}:`, e.message);
         }
     });
 
-    // 等待所有 API 跑完
     await Promise.all(promises);
     return liveData;
 }
@@ -163,7 +160,7 @@ export async function fetchAndParseZip(url) {
                 return JSON.parse(text);
             }
         }
-    } catch (e) { /* 忽略 404 或錯誤 */ }
+    } catch (e) { /* 忽略 404 */ }
     return {};
 }
 
@@ -180,7 +177,6 @@ export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestore
             
             const existingPeriods = new Set(merged.games[gameName].map(r => String(r.period)));
             records.forEach(record => {
-                // 只有期數不存在時才加入 (避免重複)
                 if (!existingPeriods.has(String(record.period))) {
                     merged.games[gameName].push(record);
                     existingPeriods.add(String(record.period));
@@ -189,12 +185,10 @@ export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestore
         }
     };
 
-    // 合併順序：ZIP (最舊) -> Firestore (雲端) -> Live API (最新)
     zipDataList.forEach(zip => mergeRecords(zip.games || zip));
     mergeRecords(firestoreData);
     mergeRecords(liveData);
     
-    // 排序：日期新 -> 舊
     for (const gameName in merged.games) {
         merged.games[gameName].sort((a, b) => new Date(b.date) - new Date(a.date));
     }
@@ -209,7 +203,7 @@ export function loadFromCache() {
     try { return JSON.parse(localStorage.getItem('lottery_live_cache')); } catch(e){return null;}
 }
 
-// --- 演算法核心 (維持不變) ---
+// --- 演算法核心 ---
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], customWeights={}, stats={}, wuxingContext={}) {
     const max = range; const min = (mode.includes('digit')) ? 0 : 1; 
     let weights = customWeights;
