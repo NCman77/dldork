@@ -1,10 +1,10 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.8: 整合官方 API 直連、Firebase 雲端同步與動態年份驗證
+ * V25.9: 實作漸進式渲染 (秒開網頁) 與 嚴格紅綠燈狀態檢查
  */
 import { GAME_CONFIG } from './game_config.js';
-import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore } from './utils.js';
+import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
 
 import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
@@ -144,13 +144,13 @@ const App = {
     },
     clearFortune() { const pid=document.getElementById('profile-select').value; const p=this.state.profiles.find(x=>x.id==pid); if(p){delete p.fortune2025; this.saveProfiles(); this.onProfileChange();} },
 
-    // --- Core Data Logic with Live Fetch & Cloud Sync ---
+    // --- Core Data Logic (Progressive Rendering) ---
     async initFetch() {
-        const statusText = document.getElementById('system-status-text');
-        const statusIcon = document.getElementById('system-status-icon');
-        
+        // 設定初始狀態：黃燈 (檢查中)
+        this.setSystemStatus('loading');
+
         try {
-            // 1. 讀取基礎 JSON
+            // Step 1: 讀取靜態資源 (秒開)
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
             if (jsonRes.ok) {
@@ -160,77 +160,92 @@ const App = {
                 if(jsonData.last_updated) document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
             }
 
-            // 2. 讀取所有 ZIP 檔 (歷史資料)
             const zipPromises = CONFIG.ZIP_URLS.map(url => fetchAndParseZip(url));
             const zipResults = await Promise.all(zipPromises);
 
-            // 3. 讀取 Firestore 雲端資料 (上次有人抓過的最新資料)
+            // 讀取 LocalStorage 與 Firestore (快速快取)
+            const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
-            if (this.state.db) {
-                firestoreData = await loadFromFirestore(this.state.db);
-            }
+            if (this.state.db) { firestoreData = await loadFromFirestore(this.state.db); }
 
-            // 4. 嘗試抓取 Live Data (最新資料) - API 直連
+            // 第一次合併與渲染 (使用者立刻看到舊資料)
+            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
+            this.processAndRender(initialData);
+
+            // Step 2: 背景抓取 Live Data (不阻塞畫面)
+            console.log("🚀 [System] 背景啟動 Live API 抓取...");
             const liveData = await fetchLiveLotteryData();
-            
-            // 5. 如果抓到 Live Data，同步到 Firebase 與 LocalStorage
+
+            // Step 3: 更新資料 (如果有抓到的話)
             if (liveData && Object.keys(liveData).length > 0) {
-                saveToCache(liveData); // 單機備份
-                if (this.state.db) {
-                    await saveToFirestore(this.state.db, liveData); // 雲端同步
-                }
+                console.log("🚀 [System] Live Data 抓取成功，更新介面...");
+                saveToCache(liveData); 
+                if (this.state.db) { await saveToFirestore(this.state.db, liveData); }
+                
+                // 第二次合併與渲染 (插入新資料)
+                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
+                this.processAndRender(finalData);
             }
 
-            // 6. 合併所有資料 (Live > Firestore > ZIP > JSON)
-            // 確保資料最完整
-            const mergedData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
-            
-            // 7. 處理日期格式
-            this.state.rawData = mergedData.games || {};
-            for (let game in this.state.rawData) { 
-                this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
-            }
-
-            // 8. 系統狀態判斷 (嚴格紅綠燈)
-            let hasLatestData = false;
-            const today = new Date();
-            const threeDaysAgo = new Date();
-            threeDaysAgo.setDate(today.getDate() - 3);
-            
-            for (let game in this.state.rawData) {
-                if (this.state.rawData[game].length > 0) {
-                    const lastDate = this.state.rawData[game][0].date;
-                    if (lastDate >= threeDaysAgo) {
-                        hasLatestData = true;
-                        break;
-                    }
-                }
-            }
-            
-            const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
-            if (dataCount === 0) {
-                statusText.innerText = "系統連線異常";
-                statusText.className = "text-red-600 font-bold";
-                statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
-            } else if (hasLatestData) {
-                statusText.innerText = "系統連線正常";
-                statusText.className = "text-green-600 font-bold";
-                statusIcon.className = "w-2 h-2 rounded-full bg-green-500";
-            } else {
-                statusText.innerText = "系統連線異常 (資料過期)";
-                statusText.className = "text-red-600 font-bold";
-                statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
-            }
-
-            this.renderGameButtons(); 
+            // Step 4: 最終狀態檢查 (嚴格紅綠燈)
+            this.checkSystemStatus();
 
         } catch(e) { 
             console.error("Critical Data Error:", e);
-            statusText.innerText = "系統連線異常";
-            statusText.className = "text-red-600 font-bold";
-            statusIcon.className = "w-2 h-2 rounded-full bg-red-500";
+            this.setSystemStatus('error');
             this.renderGameButtons(); 
         } 
+    },
+
+    processAndRender(mergedData) {
+        this.state.rawData = mergedData.games || {};
+        for (let game in this.state.rawData) { 
+            this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
+        }
+        this.renderGameButtons();
+    },
+
+    setSystemStatus(status) {
+        const text = document.getElementById('system-status-text');
+        const icon = document.getElementById('system-status-icon');
+        if (status === 'loading') {
+            text.innerText = "連線更新中...";
+            text.className = "text-yellow-600 font-bold";
+            icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
+        } else if (status === 'success') {
+            text.innerText = "系統連線正常";
+            text.className = "text-green-600 font-bold";
+            icon.className = "w-2 h-2 rounded-full bg-green-500";
+        } else {
+            text.innerText = "系統連線異常 (資料過期)";
+            text.className = "text-red-600 font-bold";
+            icon.className = "w-2 h-2 rounded-full bg-red-500";
+        }
+    },
+
+    checkSystemStatus() {
+        let hasLatestData = false;
+        const today = new Date();
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(today.getDate() - 3);
+        
+        // 檢查任意遊戲是否有近三天的資料
+        for (let game in this.state.rawData) {
+            if (this.state.rawData[game].length > 0) {
+                const lastDate = this.state.rawData[game][0].date;
+                if (lastDate >= threeDaysAgo) {
+                    hasLatestData = true;
+                    break;
+                }
+            }
+        }
+
+        const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
+        if (dataCount === 0 || !hasLatestData) {
+            this.setSystemStatus('error');
+        } else {
+            this.setSystemStatus('success');
+        }
     },
 
     renderGameButtons() { /*...*/ const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
@@ -245,7 +260,6 @@ const App = {
     populateYearSelect() { 
         const yearSelect = document.getElementById('search-year'); 
         const currentY = new Date().getFullYear();
-        
         for (let y = 2021; y <= currentY; y++) { 
             const opt = document.createElement('option'); 
             opt.value = y; 
