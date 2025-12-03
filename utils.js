@@ -127,21 +127,23 @@ export async function fetchLiveLotteryData() {
 
             if (!content) throw new Error("API 回傳內容錯誤 (找不到 content)");
 
-            const records = content[config.key];
+            // [FIX] 增加容錯：確保 records 是陣列
+            const records = Array.isArray(content[config.key]) ? content[config.key] : [];
 
-            if (Array.isArray(records) && records.length > 0) {
+            if (records.length > 0) {
                 liveData[gameName] = records.map(r => {
                     // 號碼來源優先順序：
                     let numbersAppear = (r.drawNumberAppear || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     let numbersSize = (r.drawNumberSize || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     
+                    // 最終顯示號碼（優先使用開出順序）
                     let finalNumbers = numbersAppear.length > 0 ? numbersAppear : numbersSize;
 
                     return {
                         period: r.drawTerm || r.period,
                         date: r.lotteryDate || r.date,
-                        numbers: finalNumbers, // 這裡儲存開出順序的號碼 (優先使用 appear)
-                        numbers_size: numbersSize // 額外儲存大小順序的號碼
+                        numbers: finalNumbers, 
+                        numbers_size: numbersSize 
                     };
                 });
                 console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆 (最新日期: ${liveData[gameName][0].date})`);
