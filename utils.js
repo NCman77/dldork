@@ -2,19 +2,18 @@
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
  * V25.13: 修正 API 資料解析結構 (使用 drawNumberSize/drawNumberAppear)
+ * V25.14: 最終 CORS Proxy 修正 (更換為 thingproxy.freeboard.io)
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
 
 /**
- * 從 Firebase 讀取最新資料
- * 修正路徑: artifacts/lottery-app/public_data/latest_draws (4層，偶數)
+ * 從 Firebase 讀取最新資料 (路徑: artifacts/lottery-app/public_data/latest_draws)
  */
 export async function loadFromFirestore(db) {
     if (!db || !window.firebaseModules) return null;
     const { doc, getDoc } = window.firebaseModules;
     try {
-        // [FIXED] 路徑修正：確保是 偶數 層級 (Collection/Doc/Collection/Doc)
         const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         const snap = await getDoc(ref);
         if (snap.exists()) {
@@ -24,21 +23,18 @@ export async function loadFromFirestore(db) {
             console.log("☁️ [Firebase] 雲端尚無資料 (等待寫入)");
         }
     } catch (e) {
-        // 權限不足的錯誤會在這裡顯示，提示用戶檢查 Firebase 規則
         console.error("Firebase 讀取失敗 (請檢查規則是否已發布):", e);
     }
     return null;
 }
 
 /**
- * 將抓到的最新資料寫入 Firebase (讓其他裝置同步)
- * 修正路徑: artifacts/lottery-app/public_data/latest_draws
+ * 將抓到的最新資料寫入 Firebase (路徑: artifacts/lottery-app/public_data/latest_draws)
  */
 export async function saveToFirestore(db, data) {
     if (!db || !window.firebaseModules || !data || Object.keys(data).length === 0) return;
     const { doc, setDoc } = window.firebaseModules;
     try {
-        // [FIXED] 路徑修正：確保是 偶數 層級
         const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', 'latest_draws');
         await setDoc(ref, { 
             games: data,
@@ -54,7 +50,7 @@ export async function saveToFirestore(db, data) {
 
 /**
  * 透過 Proxy 抓取台彩官方 API
- * 策略：使用 allorigins.win + 時間戳記防快取
+ * 策略：更換為 thingproxy.freeboard.io/fetch/ + 時間戳記防快取
  */
 export async function fetchLiveLotteryData() {
     const now = new Date();
@@ -65,35 +61,36 @@ export async function fetchLiveLotteryData() {
 
     console.log(`📡 [API] 啟動背景爬蟲 (${startMonth} ~ ${endMonth})...`);
 
-    // 官方 API 對照表
+    // 官方 API 對照表 - 修正 number_key 的使用邏輯
     const apiMap = {
         '威力彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'superLotto638Res', type: 'power', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
+            key: 'superLotto638Res', type: 'power' 
         },
         '大樂透': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Lotto649Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'lotto649Res', type: 'lotto', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
+            key: 'lotto649Res', type: 'lotto' 
         },
         '今彩539': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Daily539Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'daily539Res', type: '539', number_key: 'drawNumberAppear' // 修正為 drawNumberAppear
+            key: 'daily539Res', type: '539' 
         },
         '3星彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/3DResult?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'l3DRes', type: '3d', number_key: 'winningNumbers' // 3/4星彩可能使用舊格式
+            key: 'l3DRes', type: '3d' 
         },
         '4星彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/4DResult?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
-            key: 'l4DRes', type: '4d', number_key: 'winningNumbers' // 3/4星彩可能使用舊格式
+            key: 'l4DRes', type: '4d' 
         }
     };
 
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
+            // [FIX] 更換 Proxy 為 thingproxy.freeboard.io/fetch/
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            const proxyUrl = `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(targetUrl)}`;
 
             const res = await fetch(proxyUrl);
             
@@ -101,22 +98,15 @@ export async function fetchLiveLotteryData() {
             
             const rawText = await res.text();
             
-            // 嘗試解析 JSON (應對 allorigins 的兩種可能回傳格式)
             let json;
             try {
+                // [FIX] 嘗試解析 Proxy 傳回的 JSON
                 json = JSON.parse(rawText);
             } catch (e) {
-                // 如果第一次解析失敗，嘗試解析包裹在 contents 裡的 JSON
-                const contentMatch = rawText.match(/{"contents":.*?,"status":\d+}/);
-                if (contentMatch) {
-                    const outerJson = JSON.parse(contentMatch[0]);
-                    if (outerJson.contents) {
-                        json = JSON.parse(outerJson.contents);
-                    }
-                }
-                if (!json) throw new Error("Proxy 回傳數據格式錯誤");
+                throw new Error("Proxy 回傳數據格式錯誤，無法解析 JSON");
             }
 
+            // 台彩 API 的資料都在 content 屬性下
             const content = json.content;
 
             if (!content) throw new Error("API 回傳內容錯誤 (找不到 content)");
@@ -125,31 +115,25 @@ export async function fetchLiveLotteryData() {
 
             if (Array.isArray(records) && records.length > 0) {
                 liveData[gameName] = records.map(r => {
-                    let nums = [];
+                    // 號碼來源優先順序：
+                    // 1. drawNumberAppear (最新格式)
+                    // 2. drawNumberSize (大小順序)
+                    // 3. winningNumbers (舊格式)
+                    let numbersAppear = (r.drawNumberAppear || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
+                    let numbersSize = (r.drawNumberSize || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     
-                    // === [FIXED] 號碼解析邏輯大修正 ===
-                    // 優先使用新的號碼欄位
-                    let rawNumbers = r[config.number_key] || r.drawNumberSize || r.winningNumbers;
-                    
-                    if (Array.isArray(rawNumbers)) {
-                        nums = rawNumbers.map(n => parseInt(n, 10)).filter(n => !isNaN(n));
-                    } 
-                    // 舊格式 (3星彩/4星彩可能需要)
-                    else if (config.type === '3d' || config.type === '4d') {
-                        nums = (r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
-                    }
-                    
-                    // 對大樂透/威力彩的特殊處理 (號碼都在一起)
-                    if ((config.type === 'lotto' || config.type === 'power') && nums.length > 6) {
-                        // 假設最後一個是特別號
-                        // 程式碼中 config 已經知道哪些遊戲有 special，不需要特別處理
-                    }
-
+                    // [FIX] 3星彩和4星彩沒有 special number，所以直接使用 numbersAppear
+                    let finalNumbers = (config.type === '3d' || config.type === '4d' || config.type === '539') 
+                                        ? numbersAppear 
+                                        : (config.type === 'lotto' || config.type === 'power') && numbersAppear.length > 0
+                                            ? numbersAppear // 大樂透/威力彩的號碼都包含在 drawNumberAppear 中
+                                            : numbersAppear; // 預設
 
                     return {
                         period: r.drawTerm || r.period,
                         date: r.lotteryDate || r.date,
-                        numbers: nums
+                        numbers: finalNumbers, // 這裡儲存開出順序的號碼
+                        numbers_size: numbersSize // 額外儲存大小順序的號碼
                     };
                 });
                 console.log(`✅ [API Success] ${gameName} 抓到 ${liveData[gameName].length} 筆 (最新日期: ${liveData[gameName][0].date})`);
@@ -197,7 +181,12 @@ export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestore
             const existingPeriods = new Set(merged.games[gameName].map(r => String(r.period)));
             records.forEach(record => {
                 if (!existingPeriods.has(String(record.period))) {
-                    merged.games[gameName].push(record);
+                    // 合併時保留 numbers_size 欄位
+                    merged.games[gameName].push({
+                        ...record,
+                        numbers: record.numbers || [],
+                        numbers_size: record.numbers_size || [] 
+                    });
                     existingPeriods.add(String(record.period));
                 }
             });
