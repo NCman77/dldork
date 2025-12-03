@@ -2,7 +2,8 @@
  * algo_stat.js
  * 統計學派：基於大數據慣性分析與極限遺漏回補機制
  */
-import { calculateZone, getLotteryStats } from './utils.js';
+// 修正引用路徑：utils.js 在上一層
+import { calculateZone, getLotteryStats } from '../utils.js';
 
 export function algoStat({ data, gameDef }) {
     const stats = data.length > 0 ? getLotteryStats(data, gameDef.range, gameDef.count) : null;
