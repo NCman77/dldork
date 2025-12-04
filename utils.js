@@ -1,8 +1,7 @@
 /**
  * utils.js
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
- * V25.13: 修正 API 資料解析結構 (使用 drawNumberSize/drawNumberAppear)
- * V25.14: 最終 CORS Proxy 修正 (更換為 thingproxy.freeboard.io)
+ * V25.15: 修正 API 連線問題 (更換 Proxy 為 api.allorigins.win 以解決 DNS 解析錯誤)
  */
 
 // --- Firebase Firestore 雲端同步功能 ---
@@ -50,7 +49,8 @@ export async function saveToFirestore(db, data) {
 
 /**
  * 透過 Proxy 抓取台彩官方 API
- * 策略：更換為 thingproxy.freeboard.io/fetch/ + 時間戳記防快取
+ * 策略：更換為 api.allorigins.win/raw?url= + 時間戳記防快取
+ * 原因：thingproxy 在雲端容器環境容易發生 DNS 解析錯誤 (ERR_NAME_NOT_RESOLVED)
  */
 export async function fetchLiveLotteryData() {
     const now = new Date();
@@ -61,7 +61,7 @@ export async function fetchLiveLotteryData() {
 
     console.log(`📡 [API] 啟動背景爬蟲 (${startMonth} ~ ${endMonth})...`);
 
-    // 官方 API 對照表 - 修正 number_key 的使用邏輯
+    // 官方 API 對照表
     const apiMap = {
         '威力彩': { 
             url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
@@ -88,9 +88,10 @@ export async function fetchLiveLotteryData() {
     const liveData = {};
     const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
         try {
-            // [FIX] 更換 Proxy 為 thingproxy.freeboard.io/fetch/
+            // [FIX V25.15] 更換 Proxy 為 api.allorigins.win (使用 raw 模式)
+            // 這種方式在 iframe/Container 環境下比 thingproxy 穩定
             const targetUrl = `${config.url}&_t=${timestamp}`;
-            const proxyUrl = `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(targetUrl)}`;
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
             const res = await fetch(proxyUrl);
             
@@ -100,7 +101,6 @@ export async function fetchLiveLotteryData() {
             
             let json;
             try {
-                // [FIX] 嘗試解析 Proxy 傳回的 JSON
                 json = JSON.parse(rawText);
             } catch (e) {
                 throw new Error("Proxy 回傳數據格式錯誤，無法解析 JSON");
@@ -122,7 +122,7 @@ export async function fetchLiveLotteryData() {
                     let numbersAppear = (r.drawNumberAppear || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     let numbersSize = (r.drawNumberSize || r.winningNumbers || []).map(n => parseInt(n, 10)).filter(n => !isNaN(n));
                     
-                    // [FIX] 3星彩和4星彩沒有 special number，所以直接使用 numbersAppear
+                    // 3星彩和4星彩沒有 special number，所以直接使用 numbersAppear
                     let finalNumbers = (config.type === '3d' || config.type === '4d' || config.type === '539') 
                                         ? numbersAppear 
                                         : (config.type === 'lotto' || config.type === 'power') && numbersAppear.length > 0
