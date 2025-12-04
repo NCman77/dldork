@@ -213,6 +213,22 @@ const App = {
         this.setSystemStatus('loading');
 
         try {
+        // [Phase 0] 極速載入：優先從 Firebase 讀取快取
+        let quickLoaded = false;
+        if (this.state.db) {
+            try {
+                const fbData = await loadFromFirestore(this.state.db);
+                if (fbData && Object.keys(fbData).length > 0) {
+                    console.log("⚡ [快取命中] 從 Firebase 極速載入");
+                    const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
+                    this.processAndRender(quickData);
+                    quickLoaded = true;
+                }
+            } catch (e) {
+                console.warn("⚠️ Firebase 快取讀取失敗，改用完整載入", e);
+            }
+        }
+
             // [Phase 1] 秒開：讀取靜態資源 & Firestore
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
