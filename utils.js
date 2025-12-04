@@ -136,8 +136,6 @@ export async function fetchLiveLotteryData() {
             const json = await res.json();
             const contentKey = Object.keys(json.content || {})[0]; // 自動抓取 key (如 lotto649Res)
             const records = json.content[contentKey] || [];
-            console.log(`[API Response] ${code}:`, { contentKey, recordsCount: records.length, json });
-
 
             if (!liveData[code]) liveData[code] = [];
 
@@ -157,8 +155,8 @@ export async function fetchLiveLotteryData() {
                     });
                 }
             });
-                } catch (e) {
-            console.error(`❌ [API Error] ${code}:`, e);
+        } catch (e) {
+            console.error(`❌ API 錯誤 [${code}]:`, e);  // ← 改這行
         }
     }
     return liveData;
