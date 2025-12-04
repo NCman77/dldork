@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.15: [FIX] 增加儲存權限容錯機制 (Storage Permission Fault Tolerance)
+ * V25.16: [FIX] 調整執行順序：優先更新畫面 (Render First)，後執行儲存，確保顯示無誤
  */
 import { GAME_CONFIG } from './game_config.js';
 // [Scheme B] 現在 utils.js 提供所有功能，直接匯入
@@ -244,7 +244,13 @@ const App = {
             if (liveData && Object.keys(liveData).length > 0) {
                 console.log("🚀 [System] Live Data 抓取成功，更新介面...");
                 
-                // [FIX] 容錯處理：隔離儲存邏輯，即使失敗也不影響渲染
+                // [FIX V25.16] 關鍵修正：優先執行 UI 渲染 (UI First)
+                // 先將畫面更新，確保使用者看到號碼
+                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
+                this.processAndRender(finalData);
+
+                // [FIX V25.16] 後執行儲存 (Fire-and-forget)
+                // 這樣即使權限錯誤崩潰，也不會影響已經更新的畫面
                 try {
                     saveToCache(liveData); 
                 } catch (e) {
@@ -258,10 +264,6 @@ const App = {
                         console.warn("⚠️ Firestore 寫入失敗 (權限受限):", e);
                     }
                 }
-                
-                // 這裡必須執行，確保畫面更新
-                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
-                this.processAndRender(finalData);
             }
 
             // [Phase 4] 最終狀態檢查 (嚴格紅綠燈)
