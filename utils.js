@@ -121,64 +121,112 @@ export async function fetchLiveLotteryData() {
         '3D': '3D', '4D': '4D'
     };
     const API_BASE = 'https://api.taiwanlottery.com/TLCAPIWeB/Lottery';
-    const { startMonth, endMonth } = getApiDateRange();
     const liveData = {};
 
-    console.log(`[Utils] Fetching Live Data: ${startMonth} ~ ${endMonth}`);
+    // 代碼轉換
+    const codeMap = {
+        'Lotto649': '大樂透', 'SuperLotto638': '威力彩',
+        'Daily539': '今彩539', 'Lotto1224': '雙贏彩',
+        '3D': '3星彩', '4D': '4星彩'
+    };
+
+    // 產生月份清單（往前推 3 個月）
+    const today = new Date();
+    const monthsToFetch = [];
+    for (let i = 0; i < 3; i++) {
+        const targetDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+        monthsToFetch.push(yearMonth);
+    }
+
+    console.log(`[Utils] 🔄 嘗試抓取資料: ${monthsToFetch.join(', ')}`);
 
     for (const code of Object.values(GAMES)) {
-        try {
-            // 建構 URL
-            const url = `${API_BASE}/${code}Result?startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=100`;
-            const res = await fetch(url); // 注意: 若無 Proxy 可能遇 CORS
-            if (!res.ok) continue;
+        const gameName = codeMap[code] || code;
+        if (!liveData[gameName]) liveData[gameName] = [];
 
-            const json = await res.json();
-            const contentKey = code.charAt(0).toLowerCase() + code.slice(1) + 'Res';  // ← 改這行
-            const records = json.content[contentKey] || [];
-            console.log(`📌 [${code}] contentKey = "${contentKey}"`);
-            console.log(`📌 [${code}] records 是陣列嗎？${Array.isArray(records)}`);
-            console.log(`📌 [${code}] records =`, records);
+        // 方案 A：逐月查詢（優先）
+        let totalRecords = 0;
+        for (const month of monthsToFetch) {
+            try {
+                const url = `${API_BASE}/${code}Result?month=${month}&pageNum=1&pageSize=100`;
+                const res = await fetch(url);
+                if (!res.ok) continue;
 
+                const json = await res.json();
+                const contentKey = code.charAt(0).toLowerCase() + code.slice(1) + 'Res';
+                const records = json.content[contentKey] || [];
 
+                if (records.length > 0) {
+                    console.log(`✅ [${gameName}] 逐月查詢 ${month}: ${records.length} 筆`);
+                    totalRecords += records.length;
+                    
+                    records.forEach(item => {
+                        const dateStr = item.lotteryDate.split('T')[0];
+                        const numsSize = item.drawNumberSize || [];
+                        const numsAppear = item.drawNumberAppear || [];
+                        
+                        if (numsSize.length > 0 || numsAppear.length > 0) {
+                            liveData[gameName].push({
+                                date: dateStr,
+                                period: String(item.period),
+                                numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                                numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                source: 'live_api'
+                            });
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`⚠️ [${gameName}] 逐月查詢 ${month} 失敗`);
+            }
+        }
 
-            if (!liveData[code]) liveData[code] = [];
-
-            records.forEach(item => {
-                const dateStr = item.lotteryDate.split('T')[0];
-                const numsSize = item.drawNumberSize || [];
-                const numsAppear = item.drawNumberAppear || [];
+        // 方案 B：如果逐月查詢失敗或沒資料，嘗試區間查詢
+        if (totalRecords === 0) {
+            console.log(`🔄 [${gameName}] 逐月查詢無資料，嘗試區間查詢...`);
+            try {
+                const startMonth = monthsToFetch[monthsToFetch.length - 1];
+                const endMonth = monthsToFetch[0];
+                const url = `${API_BASE}/${code}Result?startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=100`;
+                const res = await fetch(url);
                 
-                // 確保有數字
-            if (numsSize.length > 0 || numsAppear.length > 0) {
-                // 轉換英文代碼為中文名稱
-            const codeMap = {
-            'Lotto649': '大樂透',
-            'SuperLotto638': '威力彩',
-            'Daily539': '今彩539',
-            'Lotto1224': '雙贏彩',
-            '3D': '3星彩',
-            '4D': '4星彩'
-    };
-    const gameName = codeMap[code] || code;
-    if (!liveData[gameName]) liveData[gameName] = [];
-    
-    liveData[gameName].push({
-        date: dateStr,
-        period: String(item.period),
-        numbers: numsAppear.length > 0 ? numsAppear : numsSize,
-        numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-        source: 'live_api'
-    });
-}
+                if (res.ok) {
+                    const json = await res.json();
+                    const contentKey = code.charAt(0).toLowerCase() + code.slice(1) + 'Res';
+                    const records = json.content[contentKey] || [];
 
-            });
-        } catch (e) {
-            console.error(`❌ API 錯誤 [${code}]:`, e);  // ← 改這行
+                    if (records.length > 0) {
+                        console.log(`✅ [${gameName}] 區間查詢成功: ${records.length} 筆`);
+                        
+                        records.forEach(item => {
+                            const dateStr = item.lotteryDate.split('T')[0];
+                            const numsSize = item.drawNumberSize || [];
+                            const numsAppear = item.drawNumberAppear || [];
+                            
+                            if (numsSize.length > 0 || numsAppear.length > 0) {
+                                liveData[gameName].push({
+                                    date: dateStr,
+                                    period: String(item.period),
+                                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                    source: 'live_api'
+                                });
+                            }
+                        });
+                    } else {
+                        console.warn(`⚠️ [${gameName}] 區間查詢也無資料`);
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ [${gameName}] 區間查詢失敗`);
+            }
         }
     }
+    
     return liveData;
 }
+
 
 // 合併多重來源資料 (Base + ZIPs + Live + Firestore)
 export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) {
