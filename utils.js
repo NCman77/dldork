@@ -97,9 +97,9 @@ function getApiDateRange() {
     const endY = today.getFullYear();
     const endM = today.getMonth() + 1;
     
-    // 回推3個月 (包含本月) -> 減2
+    // 回推3個月 (包含本月) -> 減5
     let startY = endY;
-    let startM = endM - 2;
+    let startM = endM - 5;
     
     if (startM <= 0) {
         startM += 12;
@@ -129,7 +129,7 @@ export async function fetchLiveLotteryData() {
     for (const code of Object.values(GAMES)) {
         try {
             // 建構 URL
-            const url = `${API_BASE}/${code}Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`;
+            const url = `${API_BASE}/${code}Result?startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=100`;
             const res = await fetch(url); // 注意: 若無 Proxy 可能遇 CORS
             if (!res.ok) continue;
 
