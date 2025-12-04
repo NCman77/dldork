@@ -3,7 +3,6 @@
  * 共用工具箱：存放所有學派都會用到的底層數學運算、統計邏輯與命理轉換函數
  * V25.16: 改良 API 抓取重試/timeout、號碼解析、日期正規化、proxy fallback、ZIP 錯誤回報
  */
-
 // --- Firebase Firestore 雲端同步功能 ---
 export async function loadFromFirestore(db) {
   if (!db || !window.firebaseModules) return null;
@@ -23,7 +22,6 @@ export async function loadFromFirestore(db) {
   }
   return null;
 }
-
 export async function saveToFirestore(db, data) {
   if (!db || !window.firebaseModules || !data || Object.keys(data).length === 0) return;
   const { doc, setDoc } = window.firebaseModules;
@@ -38,7 +36,6 @@ export async function saveToFirestore(db, data) {
     console.error("Firebase 寫入失敗 (請檢查規則是否已發布):", e && e.message ? e.message : e);
   }
 }
-
 // --- 小工具：fetch with timeout + retry + exponential backoff ---
 async function fetchWithTimeoutAndRetry(url, options = {}, { retries = 2, timeout = 8000, backoff = 500 } = {}) {
   const attempt = async (n, delay) => {
@@ -58,7 +55,6 @@ async function fetchWithTimeoutAndRetry(url, options = {}, { retries = 2, timeou
   };
   return attempt(retries, backoff);
 }
-
 // --- 更健壯的號碼解析器（處理陣列、字串、各種分隔符） ---
 function parseNumbersField(field) {
   if (field === null || field === undefined) return [];
@@ -81,7 +77,6 @@ function parseNumbersField(field) {
   }
   return [];
 }
-
 // --- 日期正規化（回傳 ISO 字串或 null） ---
 function normalizeDate(d) {
   if (!d) return null;
@@ -106,7 +101,6 @@ function normalizeDate(d) {
   }
   return null;
 }
-
 // --- 官方 API 抓取功能（核心） ---
 export async function fetchLiveLotteryData() {
   const now = new Date();
@@ -114,9 +108,7 @@ export async function fetchLiveLotteryData() {
   const startMonth = `${year}-01`;
   const endMonth = `${year}-12`;
   const timestamp = Date.now(); // 防快取
-
   console.log(`📡 [API] 啟動背景爬蟲 (${startMonth} ~ ${endMonth})...`);
-
   const apiMap = {
     '威力彩': {
       url: `https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result?period&startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=50`,
@@ -144,14 +136,11 @@ export async function fetchLiveLotteryData() {
       type: '4d'
     }
   };
-
   const liveData = {};
   const errors = {};
-
   const promises = Object.entries(apiMap).map(async ([gameName, config]) => {
     const targetUrl = `${config.url}&_t=${timestamp}`;
-    const proxyUrl = `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(targetUrl)}`;
-
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
     // 先嘗試透過 proxy（公共 proxy 可能不穩定）
     try {
       const res = await fetchWithTimeoutAndRetry(proxyUrl, {}, { retries: 2, timeout: 8000 });
@@ -185,7 +174,6 @@ export async function fetchLiveLotteryData() {
     } catch (proxyErr) {
       console.warn(`proxy 失敗 (${gameName}):`, proxyErr && proxyErr.message ? proxyErr.message : proxyErr);
       errors[gameName] = { source: 'proxy', message: proxyErr && proxyErr.message ? proxyErr.message : String(proxyErr) };
-
       // 嘗試直接抓原始 API（若 CORS 允許）
       try {
         const res2 = await fetchWithTimeoutAndRetry(targetUrl, {}, { retries: 1, timeout: 8000 });
@@ -215,13 +203,10 @@ export async function fetchLiveLotteryData() {
       }
     }
   });
-
   await Promise.all(promises);
-
   // 回傳 data 與 errors，讓上層可以決定 fallback 策略
   return { data: liveData, errors };
 }
-
 // --- ZIP 處理（回傳更明確的結果） ---
 export async function fetchAndParseZip(url) {
   try {
@@ -247,21 +232,17 @@ export async function fetchAndParseZip(url) {
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
-
 // --- 資料合併 ---
 export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestoreData = {}) {
   const merged = JSON.parse(JSON.stringify(baseData || {}));
   if (!merged.games) merged.games = {};
-
   // 如果 liveData 是 { data, errors } 的形式，取 data
   if (liveData && liveData.data) liveData = liveData.data;
-
   const mergeRecords = (sourceObj) => {
     if (!sourceObj) return;
     for (const [gameName, records] of Object.entries(sourceObj)) {
       if (!Array.isArray(records)) continue;
       if (!merged.games[gameName]) merged.games[gameName] = [];
-
       const existingPeriods = new Set(merged.games[gameName].map(r => String(r.period)));
       records.forEach(record => {
         if (!existingPeriods.has(String(record.period))) {
@@ -275,17 +256,14 @@ export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestore
       });
     }
   };
-
   // zipDataList 可能是陣列或單一物件
   if (Array.isArray(zipDataList)) {
     zipDataList.forEach(zip => mergeRecords(zip.games || zip));
   } else if (zipDataList) {
     mergeRecords(zipDataList.games || zipDataList);
   }
-
   mergeRecords(firestoreData);
   mergeRecords(liveData);
-
   for (const gameName in merged.games) {
     merged.games[gameName].sort((a, b) => {
       const da = normalizeDate(a.date) ? new Date(normalizeDate(a.date)).getTime() : 0;
@@ -293,10 +271,8 @@ export function mergeLotteryData(baseData, zipDataList, liveData = {}, firestore
       return db - da;
     });
   }
-
   return merged;
 }
-
 // --- LocalStorage 快取 ---
 export function saveToCache(data) {
   try {
@@ -322,7 +298,6 @@ export function loadFromCache() {
     return null;
   }
 }
-
 // --- 以下演算法維持原樣，不動（保留介面） ---
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw = [], customWeights = {}, stats = {}, wuxingContext = {}) { /* 省略原始內容 */ }
 export function getLotteryStats(data, range, count) { /* 省略原始內容 */ }
