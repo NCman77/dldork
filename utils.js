@@ -321,10 +321,14 @@ export async function saveToFirestore(db, newData) {
                 try {
                     // [Optimization] 先檢查是否存在，避免重複寫入浪費額度
                     const snap = await getDoc(ref);
-                    if (!snap.exists()) {
-                        await setDoc(ref, row);
-                        console.log(`[Firestore] New record saved: ${game} ${row.period}`);
-                    }
+if (!snap.exists()) {
+    await setDoc(ref, {
+        ...row,
+        game: game  // 新增遊戲名稱欄位
+    });
+    console.log(`[Firestore] New record saved: ${game} ${row.period}`);
+}
+
                 } catch (e) {
                     console.error("Firestore Save Error:", e);
                 }
@@ -334,11 +338,67 @@ export async function saveToFirestore(db, newData) {
 }
 
 export async function loadFromFirestore(db) {
-    // 這裡實作讀取邏輯，若需要從 Firestore 讀取歷史補完
-    // 為避免過多讀取，通常只讀取特定區間，此處回傳空物件示意
-    // 若需實作可使用 getDocs + query
-    return {}; 
+    if (!db || !window.firebaseModules) return {};
+    
+    const { collection, getDocs, query, where, orderBy, limit } = window.firebaseModules;
+    
+    try {
+        console.log("🔄 [Firestore] 正在載入快取資料...");
+        
+        // 計算 2 個月前的日期
+        const twoMonthsAgo = new Date();
+        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+        const dateThreshold = twoMonthsAgo.toISOString().split('T')[0];
+        
+        const gamesData = {};
+        const gamesList = ['大樂透', '威力彩', '今彩539', '雙贏彩', '3星彩', '4星彩'];
+        
+        // 讀取每個遊戲的最近資料
+        for (const gameName of gamesList) {
+            try {
+                const colRef = collection(db, 'artifacts/lottery-app/public_data');
+                
+                // 查詢最近 100 筆該遊戲的資料
+                const q = query(
+                    colRef,
+                    where('game', '==', gameName),
+                    orderBy('date', 'desc'),
+                    limit(100)
+                );
+                
+                const snapshot = await getDocs(q);
+                
+                if (!snapshot.empty) {
+                    gamesData[gameName] = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        // 只要最近 2 個月的
+                        if (data.date >= dateThreshold) {
+                            gamesData[gameName].push({
+                                date: data.date,
+                                period: data.period,
+                                numbers: data.numbers || [],
+                                numbers_size: data.numbers_size || [],
+                                source: 'firestore'
+                            });
+                        }
+                    });
+                    
+                    console.log(`✅ [Firestore] ${gameName}: ${gamesData[gameName].length} 筆`);
+                }
+            } catch (e) {
+                console.warn(`⚠️ [Firestore] ${gameName} 讀取失敗`, e);
+            }
+        }
+        
+        return gamesData;
+        
+    } catch (e) {
+        console.warn("⚠️ [Firestore] 整體讀取失敗:", e);
+        return {};
+    }
 }
+
 
 // ==========================================
 // 2. 核心選號引擎 (The Core Engine)
