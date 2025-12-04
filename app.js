@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.14: 實作歷史紀錄的「大小順序/開出順序」切換功能
+ * V25.15: [FIX] 增加儲存權限容錯機制 (Storage Permission Fault Tolerance)
  */
 import { GAME_CONFIG } from './game_config.js';
 // [Scheme B] 現在 utils.js 提供所有功能，直接匯入
@@ -82,8 +82,10 @@ const App = {
                     await this.loadProfilesCloud(user.uid); 
                     // 讀取 API Key
                     const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', user.uid, 'settings', 'api'); 
-                    const snap = await getDoc(ref); 
-                    if(snap.exists()) { this.state.apiKey = snap.data().key; document.getElementById('gemini-api-key').value = this.state.apiKey; } 
+                    try {
+                        const snap = await getDoc(ref); 
+                        if(snap.exists()) { this.state.apiKey = snap.data().key; document.getElementById('gemini-api-key').value = this.state.apiKey; } 
+                    } catch (e) { console.warn("Firebase Read Error (Storage blocked?):", e); }
                 } else { 
                     this.loadProfilesLocal(); 
                 } 
@@ -102,13 +104,57 @@ const App = {
             dot.classList.remove('bg-green-500'); dot.classList.add('bg-stone-300');
         }
     },
-    async loginGoogle() { const { getAuth, signInWithPopup, GoogleAuthProvider } = window.firebaseModules; await signInWithPopup(getAuth(), new GoogleAuthProvider()); },
+    async loginGoogle() { 
+        try {
+            const { getAuth, signInWithPopup, GoogleAuthProvider } = window.firebaseModules; 
+            await signInWithPopup(getAuth(), new GoogleAuthProvider()); 
+        } catch (e) { alert("登入失敗：可能是瀏覽器阻擋了第三方 Cookies"); console.error(e); }
+    },
     async logoutGoogle() { await window.firebaseModules.signOut(window.firebaseModules.getAuth()); this.state.profiles = []; this.loadProfilesLocal(); },
-    async loadProfilesCloud(uid) { const { doc, getDoc } = window.firebaseModules; const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', uid, 'profiles', 'main'); const snap = await getDoc(ref); this.state.profiles = snap.exists() ? snap.data().list || [] : []; this.renderProfileSelect(); this.renderProfileList(); },
-    async saveProfilesCloud() { const { doc, setDoc } = window.firebaseModules; const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'profiles', 'main'); await setDoc(ref, { list: this.state.profiles }); },
-    loadProfilesLocal() { const stored = localStorage.getItem('lottery_profiles'); if (stored) this.state.profiles = JSON.parse(stored); this.renderProfileSelect(); this.renderProfileList(); },
-    saveProfiles() { if (this.state.user) this.saveProfilesCloud(); localStorage.setItem('lottery_profiles', JSON.stringify(this.state.profiles)); this.renderProfileSelect(); this.renderProfileList(); },
-    async saveApiKey() { const key = document.getElementById('gemini-api-key').value.trim(); if(!key) return alert("請輸入 Key"); this.state.apiKey = key; if(this.state.user){ const { doc, setDoc } = window.firebaseModules; await setDoc(doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'settings', 'api'), {key}); } else { localStorage.setItem('gemini_key', key); } alert("已儲存"); },
+    async loadProfilesCloud(uid) { 
+        try {
+            const { doc, getDoc } = window.firebaseModules; 
+            const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', uid, 'profiles', 'main'); 
+            const snap = await getDoc(ref); 
+            this.state.profiles = snap.exists() ? snap.data().list || [] : []; 
+            this.renderProfileSelect(); this.renderProfileList(); 
+        } catch(e) { console.warn("Load Cloud Profiles Failed:", e); }
+    },
+    async saveProfilesCloud() { 
+        try {
+            const { doc, setDoc } = window.firebaseModules; 
+            const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'profiles', 'main'); 
+            await setDoc(ref, { list: this.state.profiles }); 
+        } catch(e) { console.warn("Save Cloud Profiles Failed:", e); }
+    },
+    loadProfilesLocal() { 
+        try {
+            const stored = localStorage.getItem('lottery_profiles'); 
+            if (stored) this.state.profiles = JSON.parse(stored); 
+        } catch (e) { console.warn("Local Storage Read Blocked"); }
+        this.renderProfileSelect(); this.renderProfileList(); 
+    },
+    saveProfiles() { 
+        if (this.state.user) this.saveProfilesCloud(); 
+        try {
+            localStorage.setItem('lottery_profiles', JSON.stringify(this.state.profiles)); 
+        } catch (e) { console.warn("Local Storage Write Blocked"); }
+        this.renderProfileSelect(); this.renderProfileList(); 
+    },
+    async saveApiKey() { 
+        const key = document.getElementById('gemini-api-key').value.trim(); 
+        if(!key) return alert("請輸入 Key"); 
+        this.state.apiKey = key; 
+        if(this.state.user){ 
+            try {
+                const { doc, setDoc } = window.firebaseModules; 
+                await setDoc(doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'settings', 'api'), {key}); 
+            } catch(e) { console.warn("Firebase save key failed", e); }
+        } else { 
+            try { localStorage.setItem('gemini_key', key); } catch(e){ console.warn("Local storage save key failed"); } 
+        } 
+        alert("已儲存"); 
+    },
     addProfile() { const name = document.getElementById('new-name').value.trim(); if(!name) return; this.state.profiles.push({ id: Date.now(), name, realname: document.getElementById('new-realname').value, ziwei: document.getElementById('new-ziwei').value, astro: document.getElementById('new-astro').value }); this.saveProfiles(); this.toggleProfileModal(); },
     deleteProfile(id) { if(confirm('刪除?')) { this.state.profiles = this.state.profiles.filter(p => p.id !== id); this.saveProfiles(); } },
     toggleProfileModal() { const m = document.getElementById('profile-modal'); const c = document.getElementById('profile-modal-content'); if(m.classList.contains('hidden')){ m.classList.remove('hidden'); setTimeout(()=>c.classList.remove('scale-95','opacity-0'),10); }else{ c.classList.add('scale-95','opacity-0'); setTimeout(()=>m.classList.add('hidden'),200); } },
@@ -197,12 +243,23 @@ const App = {
             // [Phase 3] 熱更新
             if (liveData && Object.keys(liveData).length > 0) {
                 console.log("🚀 [System] Live Data 抓取成功，更新介面...");
-                saveToCache(liveData); 
                 
-                if (this.state.db) { 
-                    await saveToFirestore(this.state.db, liveData); 
+                // [FIX] 容錯處理：隔離儲存邏輯，即使失敗也不影響渲染
+                try {
+                    saveToCache(liveData); 
+                } catch (e) {
+                    console.warn("⚠️ Local Cache 寫入失敗 (隱私模式或權限受限):", e);
                 }
                 
+                if (this.state.db) { 
+                    try {
+                        await saveToFirestore(this.state.db, liveData); 
+                    } catch (e) {
+                        console.warn("⚠️ Firestore 寫入失敗 (權限受限):", e);
+                    }
+                }
+                
+                // 這裡必須執行，確保畫面更新
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
             }
