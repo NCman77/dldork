@@ -239,7 +239,6 @@ const App = {
             console.log("🚀 [System] 背景啟動 Live API 抓取...");
             
             const liveData = await fetchLiveLotteryData();
-            console.log("✅ Live API 資料：", liveData);
 
             // [Phase 3] 熱更新
             if (liveData && Object.keys(liveData).length > 0) {
@@ -248,9 +247,7 @@ const App = {
                 // [FIX V25.16] 關鍵修正：優先執行 UI 渲染 (UI First)
                 // 先將畫面更新，確保使用者看到號碼
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
-                console.log("✅ 合併後資料：", finalData);  // ← 你新加的
                 this.processAndRender(finalData);
-
 
                 // [FIX V25.16] 後執行儲存 (Fire-and-forget)
                 // 這樣即使權限錯誤崩潰，也不會影響已經更新的畫面
@@ -261,12 +258,11 @@ const App = {
                 }
                 
                 if (this.state.db) { 
-                    try {
-                        await saveToFirestore(this.state.db, liveData); 
-                    } catch (e) {
-                        console.warn("⚠️ Firestore 寫入失敗 (權限受限):", e);
-                    }
-                }
+    saveToFirestore(this.state.db, liveData).catch(e => {
+        console.warn("⚠️ Firestore 寫入失敗:", e);
+    });
+}
+
             }
 
             // [Phase 4] 最終狀態檢查 (嚴格紅綠燈)
