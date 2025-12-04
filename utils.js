@@ -150,15 +150,28 @@ export async function fetchLiveLotteryData() {
                 const numsAppear = item.drawNumberAppear || [];
                 
                 // 確保有數字
-                if (numsSize.length > 0 || numsAppear.length > 0) {
-                    liveData[code].push({
-                        date: dateStr, // 字串
-                        period: String(item.period),
-                        numbers: numsAppear.length > 0 ? numsAppear : numsSize, // 預設開出順序
-                        numbers_size: numsSize.length > 0 ? numsSize : numsAppear, // 大小順序
-                        source: 'live_api'
-                    });
-                }
+            if (numsSize.length > 0 || numsAppear.length > 0) {
+                // 轉換英文代碼為中文名稱
+            const codeMap = {
+            'Lotto649': '大樂透',
+            'SuperLotto638': '威力彩',
+            'Daily539': '今彩539',
+            'Lotto1224': '雙贏彩',
+            '3D': '3星彩',
+            '4D': '4星彩'
+    };
+    const gameName = codeMap[code] || code;
+    if (!liveData[gameName]) liveData[gameName] = [];
+    
+    liveData[gameName].push({
+        date: dateStr,
+        period: String(item.period),
+        numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+        numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+        source: 'live_api'
+    });
+}
+
             });
         } catch (e) {
             console.error(`❌ API 錯誤 [${code}]:`, e);  // ← 改這行
