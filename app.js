@@ -277,13 +277,19 @@ const App = {
     },
 
     processAndRender(mergedData) {
-        this.state.rawData = mergedData.games || {};
-        // 確保日期是 Date 物件
-        for (let game in this.state.rawData) { 
-            this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
-        }
-        this.renderGameButtons();
-    },
+    this.state.rawData = mergedData.games || {};
+    // 確保日期是 Date 物件
+    for (let game in this.state.rawData) { 
+        this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
+    }
+    this.renderGameButtons();
+    
+    // [FIX] 如果已經選擇了遊戲，立即更新畫面
+    if (this.state.currentGame) {
+        this.updateDashboard();
+    }
+}
+
 
     setSystemStatus(status, dateStr = "") {
         const text = document.getElementById('system-status-text');
