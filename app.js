@@ -227,13 +227,7 @@ const App = {
             const zipResults = await Promise.all(zipPromises);
 
             // 讀取 LocalStorage 與 Firestore
-            let localCache = {};
-try {
-    localCache = loadFromCache()?.data || {};
-} catch (e) {
-    console.warn("⚠️ LocalStorage 讀取失敗:", e);
-}
-
+            const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) { firestoreData = await loadFromFirestore(this.state.db); }
 
@@ -502,4 +496,3 @@ try {
 
 window.app = App;
 window.onload = () => App.init();
-
