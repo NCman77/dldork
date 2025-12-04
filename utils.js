@@ -130,61 +130,73 @@ export async function fetchLiveLotteryData() {
         '3D': '3星彩', '4D': '4星彩'
     };
 
-    // 產生月份清單（往前推 3 個月）
+    // 產生月份清單（往前推 2 個月，加速）
     const today = new Date();
     const monthsToFetch = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
         const targetDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
         monthsToFetch.push(yearMonth);
     }
 
-    console.log(`[Utils] 🔄 嘗試抓取資料: ${monthsToFetch.join(', ')}`);
+    console.log(`[Utils] 🔄 抓取資料: ${monthsToFetch.join(', ')}`);
+
+    // 修正 contentKey 函數
+    const getContentKey = (code) => {
+        if (code === '3D') return 'lotto3DRes';
+        if (code === '4D') return 'lotto4DRes';
+        return code.charAt(0).toLowerCase() + code.slice(1) + 'Res';
+    };
 
     for (const code of Object.values(GAMES)) {
         const gameName = codeMap[code] || code;
         if (!liveData[gameName]) liveData[gameName] = [];
 
-        // 方案 A：逐月查詢（優先）
-        let totalRecords = 0;
-        for (const month of monthsToFetch) {
+        // 平行查詢所有月份（加速）
+        const monthPromises = monthsToFetch.map(async (month) => {
             try {
                 const url = `${API_BASE}/${code}Result?month=${month}&pageNum=1&pageSize=100`;
                 const res = await fetch(url);
-                if (!res.ok) continue;
+                if (!res.ok) return [];
 
                 const json = await res.json();
-                const contentKey = code.charAt(0).toLowerCase() + code.slice(1) + 'Res';
+                const contentKey = getContentKey(code);
                 const records = json.content[contentKey] || [];
-
+                
                 if (records.length > 0) {
-                    console.log(`✅ [${gameName}] 逐月查詢 ${month}: ${records.length} 筆`);
-                    totalRecords += records.length;
-                    
-                    records.forEach(item => {
-                        const dateStr = item.lotteryDate.split('T')[0];
-                        const numsSize = item.drawNumberSize || [];
-                        const numsAppear = item.drawNumberAppear || [];
-                        
-                        if (numsSize.length > 0 || numsAppear.length > 0) {
-                            liveData[gameName].push({
-                                date: dateStr,
-                                period: String(item.period),
-                                numbers: numsAppear.length > 0 ? numsAppear : numsSize,
-                                numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-                                source: 'live_api'
-                            });
-                        }
-                    });
+                    console.log(`✅ [${gameName}] ${month}: ${records.length} 筆`);
                 }
+                
+                return records;
             } catch (e) {
-                console.warn(`⚠️ [${gameName}] 逐月查詢 ${month} 失敗`);
+                console.warn(`⚠️ [${gameName}] ${month} 失敗`);
+                return [];
             }
-        }
+        });
 
-        // 方案 B：如果逐月查詢失敗或沒資料，嘗試區間查詢
-        if (totalRecords === 0) {
-            console.log(`🔄 [${gameName}] 逐月查詢無資料，嘗試區間查詢...`);
+        const allMonthRecords = await Promise.all(monthPromises);
+        const allRecords = allMonthRecords.flat();
+
+        // 處理所有記錄
+        allRecords.forEach(item => {
+            const dateStr = item.lotteryDate.split('T')[0];
+            const numsSize = item.drawNumberSize || [];
+            const numsAppear = item.drawNumberAppear || [];
+            
+            if (numsSize.length > 0 || numsAppear.length > 0) {
+                liveData[gameName].push({
+                    date: dateStr,
+                    period: String(item.period),
+                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                    source: 'live_api'
+                });
+            }
+        });
+
+        // 備援：如果逐月查詢失敗，嘗試區間查詢
+        if (allRecords.length === 0) {
+            console.log(`🔄 [${gameName}] 逐月無資料，嘗試區間查詢...`);
             try {
                 const startMonth = monthsToFetch[monthsToFetch.length - 1];
                 const endMonth = monthsToFetch[0];
@@ -193,11 +205,11 @@ export async function fetchLiveLotteryData() {
                 
                 if (res.ok) {
                     const json = await res.json();
-                    const contentKey = code.charAt(0).toLowerCase() + code.slice(1) + 'Res';
+                    const contentKey = getContentKey(code);
                     const records = json.content[contentKey] || [];
 
                     if (records.length > 0) {
-                        console.log(`✅ [${gameName}] 區間查詢成功: ${records.length} 筆`);
+                        console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆`);
                         
                         records.forEach(item => {
                             const dateStr = item.lotteryDate.split('T')[0];
@@ -214,8 +226,6 @@ export async function fetchLiveLotteryData() {
                                 });
                             }
                         });
-                    } else {
-                        console.warn(`⚠️ [${gameName}] 區間查詢也無資料`);
                     }
                 }
             } catch (e) {
@@ -226,6 +236,7 @@ export async function fetchLiveLotteryData() {
     
     return liveData;
 }
+
 
 
 // 合併多重來源資料 (Base + ZIPs + Live + Firestore)
