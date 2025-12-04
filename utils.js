@@ -136,6 +136,8 @@ export async function fetchLiveLotteryData() {
             const json = await res.json();
             const contentKey = Object.keys(json.content || {})[0]; // 自動抓取 key (如 lotto649Res)
             const records = json.content[contentKey] || [];
+            console.log(`🔍 [API 回應] ${code}:`, json);
+
 
             if (!liveData[code]) liveData[code] = [];
 
