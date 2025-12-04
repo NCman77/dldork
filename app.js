@@ -248,6 +248,10 @@ const App = {
                 // 先將畫面更新，確保使用者看到號碼
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
+                    // [FIX] 強制刷新畫面以顯示最新號碼
+                if (this.state.currentGame) {
+                this.updateDashboard();
+    }
 
                 // [FIX V25.16] 後執行儲存 (Fire-and-forget)
                 // 這樣即使權限錯誤崩潰，也不會影響已經更新的畫面
