@@ -4,7 +4,12 @@
  * V25.14: 實作歷史紀錄的「大小順序/開出順序」切換功能
  */
 import { GAME_CONFIG } from './game_config.js';
-import { getGanZhi, monteCarloSim, calculateZone, fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, saveToCache, saveToFirestore, loadFromFirestore, loadFromCache } from './utils.js';
+// [Scheme B] 現在 utils.js 提供所有功能，直接匯入
+import { 
+    getGanZhi, monteCarloSim, calculateZone, 
+    fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, 
+    saveToCache, saveToFirestore, loadFromFirestore, loadFromCache 
+} from './utils.js';
 
 import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
@@ -36,7 +41,7 @@ const App = {
         currentSchool: "balance",
         filterPeriod: "", filterYear: "", filterMonth: "",
         profiles: [], user: null, db: null, apiKey: "",
-        drawOrder: 'appear' // [NEW] 新增：'appear' (開出順序) 或 'size' (大小順序)
+        drawOrder: 'appear' // 'appear' (開出順序) 或 'size' (大小順序)
     },
 
     init() {
@@ -271,8 +276,8 @@ const App = {
         }
     },
 
-    renderGameButtons() { /*...*/ const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
-    updateDashboard() { /*...*/ const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); 
+    renderGameButtons() { const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
+    updateDashboard() { const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); 
     
         // [NEW] 渲染順序切換按鈕
         this.renderDrawOrderControls(); 
@@ -293,16 +298,18 @@ const App = {
             <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
         `;
         // 確保 CSS 樣式存在 (這裡使用 Tailwind 類別模擬)
-        document.head.insertAdjacentHTML('beforeend', `
-            <style>
+        if (!document.getElementById('order-btn-style')) {
+             document.head.insertAdjacentHTML('beforeend', `
+            <style id="order-btn-style">
                 .order-btn {
-                    @apply px-2 py-1 text-[10px] rounded-full border border-stone-300 text-stone-600 transition-colors duration-150;
+                    padding: 2px 8px; font-size: 10px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms;
                 }
                 .order-btn.active {
-                    @apply bg-emerald-500 border-emerald-500 text-white shadow-md;
+                    background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
                 }
             </style>
         `);
+        }
     },
 
     // [NEW] 設定顯示順序
@@ -313,7 +320,7 @@ const App = {
         this.updateDashboard(); // 刷新歷史列表
     },
 
-    renderSubModeUI(gameDef) { /*...*/ const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
+    renderSubModeUI(gameDef) { const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
     toggleRules() { document.getElementById('game-rules-content').classList.toggle('hidden'); },
     renderHistoryList(data) { 
         const list = document.getElementById('history-list'); 
@@ -351,8 +358,8 @@ const App = {
             list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`; 
         }); 
     },
-    renderHotStats(elId, dataset) { /*...*/ const el = document.getElementById(elId); if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; } const freq = {}; dataset.forEach(d => d.numbers.forEach(n => freq[n] = (freq[n]||0)+1)); const sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 5); el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join(''); },
-    selectSchool(school) { /*...*/ this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
+    renderHotStats(elId, dataset) { const el = document.getElementById(elId); if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; } const freq = {}; dataset.forEach(d => d.numbers.forEach(n => freq[n] = (freq[n]||0)+1)); const sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 5); el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join(''); },
+    selectSchool(school) { this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
 
     // 呼叫專家級演算法 (委託給 utils)
     runPrediction() {
