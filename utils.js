@@ -316,7 +316,7 @@ export async function saveToFirestore(db, newData) {
         for (const row of rows) {
             if (row.source === 'live_api') {
                 const docId = `${row.date}_${row.period}`;
-                const ref = doc(db, 'artifacts', 'lottery-app', 'public', 'data', game, docId);
+                const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', `${game}_${docId}`);
                 
                 try {
                     // [Optimization] 先檢查是否存在，避免重複寫入浪費額度
