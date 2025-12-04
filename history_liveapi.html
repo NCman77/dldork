@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>歷史開獎號碼抓取工具</title>
+</head>
+<body>
+<h2>歷史開獎號碼抓取工具（Live API 格式）</h2>
+<button id="fetchBtn">抓取歷史號碼</button>
+<pre id="output"></pre>
+
+<script>
+// 對應遊戲名稱
+const games = {
+    "lotto649": "大樂透",
+    "superlotto638": "威力彩",
+    "daily539": "今彩539",
+    "lotto3": "3星彩",
+    "lotto4": "4星彩"
+};
+
+// 抓歷史資料
+async function fetchLotteryData(game) {
+    const urlMap = {
+        "lotto649": "https://www.taiwanlottery.com.tw/Lotto/Lotto649/history.aspx",
+        "superlotto638": "https://www.taiwanlottery.com.tw/Lotto/SuperLotto638/history.aspx",
+        "daily539": "https://www.taiwanlottery.com.tw/Lotto/Daily539/history.aspx",
+        "lotto3": "https://www.taiwanlottery.com.tw/Lotto/3D/history.aspx",
+        "lotto4": "https://www.taiwanlottery.com.tw/Lotto/4D/history.aspx"
+    };
+
+    const apiUrl = urlMap[game];
+    if (!apiUrl) throw new Error("無效的遊戲名稱：" + game);
+
+    try {
+        const res = await fetch(apiUrl);
+        const html = await res.text();
+
+        // 解析號碼 (簡單 Regex)
+        const regex = /<td.*?class="ball_tx.*?">(\d+)<\/td>/g;
+        let match;
+        const numbers = [];
+        while ((match = regex.exec(html)) !== null) {
+            numbers.push(parseInt(match[1], 10));
+        }
+
+        // 轉成 Live API JSON 格式
+        const liveData = numbers.map((num, idx) => ({
+            period: `2025-${String(Math.floor(idx / 6) + 1).padStart(2, '0')}`, // 假設每6個號碼為一期
+            number: numbers.slice(idx, idx + 6)
+        }));
+
+        return { game: games[game], data: liveData };
+    } catch (err) {
+        console.error(`抓取 ${game} 發生錯誤:`, err);
+        return { game: games[game], error: err.message };
+    }
+}
+
+document.getElementById("fetchBtn").addEventListener("click", async () => {
+    const output = document.getElementById("output");
+    output.textContent = "抓取中...";
+
+    const results = [];
+    for (let g in games) {
+        const data = await fetchLotteryData(g);
+        results.push(data);
+    }
+
+    // 完整 Live API 格式 JSON
+    const finalJson = {
+        source: "taiwanlottery",
+        fetchedAt: new Date().toISOString(),
+        results
+    };
+
+    output.textContent = JSON.stringify(finalJson, null, 2);
+});
+</script>
+</body>
+</html>
