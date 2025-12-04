@@ -345,20 +345,16 @@ export async function loadFromFirestore(db) {
     try {
         console.log("🔄 [Firestore] 正在載入快取資料...");
         
-        // 計算 2 個月前的日期
         const twoMonthsAgo = new Date();
         twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
         const dateThreshold = twoMonthsAgo.toISOString().split('T')[0];
         
-        const gamesData = {};
         const gamesList = ['大樂透', '威力彩', '今彩539', '雙贏彩', '3星彩', '4星彩'];
         
-        // 讀取每個遊戲的最近資料
-        for (const gameName of gamesList) {
+        // 🚀 並行查詢所有遊戲（不用等待）
+        const queryPromises = gamesList.map(async (gameName) => {
             try {
                 const colRef = collection(db, 'artifacts/lottery-app/public_data');
-                
-                // 查詢最近 100 筆該遊戲的資料
                 const q = query(
                     colRef,
                     where('game', '==', gameName),
@@ -369,12 +365,11 @@ export async function loadFromFirestore(db) {
                 const snapshot = await getDocs(q);
                 
                 if (!snapshot.empty) {
-                    gamesData[gameName] = [];
+                    const gameData = [];
                     snapshot.forEach(doc => {
                         const data = doc.data();
-                        // 只要最近 2 個月的
                         if (data.date >= dateThreshold) {
-                            gamesData[gameName].push({
+                            gameData.push({
                                 date: data.date,
                                 period: data.period,
                                 numbers: data.numbers || [],
@@ -384,12 +379,30 @@ export async function loadFromFirestore(db) {
                         }
                     });
                     
-                    console.log(`✅ [Firestore] ${gameName}: ${gamesData[gameName].length} 筆`);
+                    console.log(`✅ [Firestore] ${gameName}: ${gameData.length} 筆`);
+                    return { game: gameName, data: gameData };
                 }
+                return { game: gameName, data: [] };
             } catch (e) {
-                console.warn(`⚠️ [Firestore] ${gameName} 讀取失敗`, e);
+                if (e.code === 'failed-precondition') {
+                    console.error(`❌ [Firestore] ${gameName} 需要建立索引`);
+                } else {
+                    console.warn(`⚠️ [Firestore] ${gameName} 讀取失敗:`, e.message);
+                }
+                return { game: gameName, data: [] };
             }
-        }
+        });
+        
+        // 等待所有查詢完成
+        const results = await Promise.all(queryPromises);
+        
+        // 組合結果
+        const gamesData = {};
+        results.forEach(result => {
+            if (result.data.length > 0) {
+                gamesData[result.game] = result.data;
+            }
+        });
         
         return gamesData;
         
@@ -509,3 +522,4 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
