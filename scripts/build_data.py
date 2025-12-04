@@ -14,7 +14,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # === 設定區 ===
 DATA_DIR = 'data'
 OUTPUT_FILE = os.path.join(DATA_DIR, 'lottery-data.json')
-HISTORY_YEARS = [2021, 2022, 2023, 2024, 2025]
+# 修改：支援到 2050 年 (2021 到 2050)
+HISTORY_YEARS = list(range(2021, 2051))
 API_BASE = 'https://api.taiwanlottery.com/TLCAPIWeB/Lottery'
 
 # 遊戲代碼對照表
@@ -53,31 +54,25 @@ def ensure_dir():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
 
-def get_target_months():
-    """ 生成過去4個月和未來12個月的月份列表 """
+def get_api_date_range():
+    """ 計算 API 需要的 startMonth 和 endMonth (當前月份往前推3個月) """
     today = datetime.date.today()
-    months = []
     
-    # 過去4個月 (包含本月)
-    for i in range(4):
-        month = today.month - i
-        year = today.year
-        if month <= 0:
-            month += 12
-            year -= 1
-        months.append(f"{year}-{month:02d}")
+    # 結束月份為當前月份
+    end_month_str = f"{today.year}-{today.month:02d}"
     
-    # 未來12個月 (從下個月開始)
-    for i in range(1, 13):
-        month = today.month + i
-        year = today.year
-        if month > 12:
-            month -= 12
-            year += 1
-        months.append(f"{year}-{month:02d}")
+    # 開始月份為當前月份 - 2 (包含當月共3個月)
+    # 例如: 1月 -> 去年11月, 2月 -> 去年12月, 3月 -> 今年1月
+    start_year = today.year
+    start_month = today.month - 2
     
-    # 移除重複並排序
-    return sorted(list(set(months)))
+    if start_month <= 0:
+        start_month += 12
+        start_year -= 1
+        
+    start_month_str = f"{start_year}-{start_month:02d}"
+    
+    return start_month_str, end_month_str
 
 def get_jackpot_amount(game_name):
     """ 從網頁 HTML 爬取目前頭獎累積金額 """
@@ -111,7 +106,7 @@ def parse_csv_line(line):
     if not matched_game: return None
 
     # 日期解析
-    match = re.search(r'(\d{3,4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})', cols[2].strip())
+    match = re.search(r'(\d{3,4})/-./-.', cols[2].strip())
     final_date = ""
     if match:
         y, m, d = int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -121,12 +116,14 @@ def parse_csv_line(line):
 
     try:
         numbers = []
-        for i in range(5, len(cols)): 
+        for i in range(5, len(cols)):
             val = cols[i].strip()
             if val.isdigit():
                 n = int(val)
                 if 0 <= n <= 99: numbers.append(n)
+        
         if len(numbers) < 2: return None
+        
         return {'game': matched_game, 'data': {'date': final_date, 'period': cols[1], 'numbers': numbers, 'source': 'history'}}
     except: return None
 
@@ -146,6 +143,7 @@ def load_history():
                             for enc in ['cp950', 'utf-8-sig', 'utf-8', 'big5']:
                                 try: content = raw.decode(enc); break
                                 except: continue
+                            
                             if content:
                                 for line in content.splitlines():
                                     parsed = parse_csv_line(line)
@@ -155,108 +153,107 @@ def load_history():
 
 def fetch_api(db):
     print("=== Fetching Live API ===")
-    months = get_target_months()
-    print(f"Target months: {len(months)} months (past 4 + future 12)")
+    start_month, end_month = get_api_date_range()
+    print(f"Target Range: {start_month} to {end_month}")
     
     for game_name, code in GAMES.items():
-        existing_keys = set(f"{d['date']}_{d['period']}" for d in db[game_name])
+        existing_keys = set(f"{d['date']}*{d['period']}" for d in db[game_name])
         print(f"Processing {game_name} ({code})...")
         
-        for m in months:
-            # 修正API網址格式，添加period參數
-            url = f"{API_BASE}/{code}Result?period&month={m}&pageNum=1&pageSize=50"
+        # 修改API網址格式，使用區間參數
+        url = f"{API_BASE}/{code}Result?period&startMonth={start_month}&endMonth={end_month}&pageNum=1&pageSize=200"
+        
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=30, verify=False)
+            
+            if res.status_code != 200:
+                print(f" [Fail] {res.status_code}")
+                continue
+            
             try:
-                res = requests.get(url, headers=HEADERS, timeout=30, verify=False)
-                
-                if res.status_code != 200:
-                    print(f"  [Fail] {m} -> {res.status_code}")
-                    continue
-                
-                try: 
-                    data = res.json()
-                except Exception as e:
-                    print(f"  [JSON Error] {m}: {e}")
-                    continue
+                data = res.json()
+            except Exception as e:
+                print(f" [JSON Error]: {e}")
+                continue
 
-                # 檢查API回應格式
-                rt_code = data.get('rtCode', -1)
-                if rt_code != 0:
-                    print(f"  [API Error] {m}: rtCode={rt_code}")
+            # 檢查API回應格式
+            rt_code = data.get('rtCode', -1)
+            if rt_code != 0:
+                print(f" [API Error]: rtCode={rt_code}")
+                continue
+            
+            if 'content' not in data:
+                print(f" [No Content]")
+                continue
+            
+            # 取得對應遊戲的鍵名
+            response_key = API_RESPONSE_KEYS.get(code)
+            if not response_key:
+                print(f" [Unknown Game] No response key for {code}")
+                continue
+            
+            # 取得開獎記錄列表
+            records = data['content'].get(response_key, [])
+            if not records:
+                continue
+            
+            count = 0
+            for item in records:
+                # 解析日期
+                date_raw = item.get('lotteryDate', '')
+                if 'T' in date_raw:
+                    date_str = date_raw.split('T')[0]
+                else:
+                    date_str = date_raw
+                
+                if not date_str:
                     continue
                 
-                if 'content' not in data:
-                    print(f"  [No Content] {m}")
-                    continue
+                # 建立唯一鍵
+                period = str(item.get('period', ''))
+                key = f"{date_str}*{period}"
                 
-                # 取得對應遊戲的鍵名
-                response_key = API_RESPONSE_KEYS.get(code)
-                if not response_key:
-                    print(f"  [Unknown Game] No response key for {code}")
-                    continue
-                
-                # 取得開獎記錄列表
-                records = data['content'].get(response_key, [])
-                if not records:
-                    # 可能該月份還沒有開獎資料，這是正常的
-                    continue
-                
-                count = 0
-                for item in records:
-                    # 解析日期
-                    date_raw = item.get('lotteryDate', '')
-                    if 'T' in date_raw:
-                        date_str = date_raw.split('T')[0]
-                    else:
-                        date_str = date_raw
+                if key not in existing_keys:
+                    # 取得開獎號碼
+                    numbers = []
                     
-                    if not date_str:
-                        continue
+                    # 優先使用 drawNumberSize 欄位
+                    draw_numbers = item.get('drawNumberSize', [])
+                    if draw_numbers:
+                        numbers = [int(n) for n in draw_numbers if isinstance(n, (int, float, str)) and str(n).isdigit()]
                     
-                    # 建立唯一鍵
-                    period = str(item.get('period', ''))
-                    key = f"{date_str}_{period}"
-                    
-                    if key not in existing_keys:
-                        # 取得開獎號碼
-                        numbers = []
-                        
-                        # 優先使用 drawNumberSize 欄位
-                        draw_numbers = item.get('drawNumberSize', [])
+                    # 如果 drawNumberSize 沒有資料，嘗試 drawNumberAppear
+                    if not numbers:
+                        draw_numbers = item.get('drawNumberAppear', [])
                         if draw_numbers:
                             numbers = [int(n) for n in draw_numbers if isinstance(n, (int, float, str)) and str(n).isdigit()]
-                        
-                        # 如果 drawNumberSize 沒有資料，嘗試 drawNumberAppear
-                        if not numbers:
-                            draw_numbers = item.get('drawNumberAppear', [])
-                            if draw_numbers:
-                                numbers = [int(n) for n in draw_numbers if isinstance(n, (int, float, str)) and str(n).isdigit()]
-                        
-                        # 如果還是沒有號碼，跳過這筆記錄
-                        if not numbers:
-                            continue
-                        
-                        # 添加到資料庫
-                        db[game_name].append({
-                            'date': date_str,
-                            'period': period,
-                            'numbers': numbers,
-                            'source': 'api'
-                        })
-                        existing_keys.add(key)
-                        count += 1
-                
-                if count > 0: 
-                    print(f"  + API: Found {count} new records in {m}")
-                
-                # 避免請求過快
-                time.sleep(0.5)
-                
-            except requests.exceptions.Timeout:
-                print(f"  [Timeout] {m}: Request timeout")
-            except requests.exceptions.ConnectionError:
-                print(f"  [Connection Error] {m}: Failed to connect")
-            except Exception as e:
-                print(f"  [Error] {game_name} {m}: {str(e)}")
+                    
+                    # 如果還是沒有號碼，跳過這筆記錄
+                    if not numbers:
+                        continue
+                    
+                    # 添加到資料庫
+                    db[game_name].append({
+                        'date': date_str,
+                        'period': period,
+                        'numbers': numbers,
+                        'source': 'api'
+                    })
+                    existing_keys.add(key)
+                    count += 1
+            
+            if count > 0:
+                print(f" + API: Found {count} new records")
+            
+            # 避免請求過快
+            time.sleep(0.5)
+            
+        except requests.exceptions.Timeout:
+            print(f" [Timeout]: Request timeout")
+        except requests.exceptions.ConnectionError:
+            print(f" [Connection Error]: Failed to connect")
+        except Exception as e:
+            print(f" [Error] {game_name}: {str(e)}")
 
 def save_data(db):
     print("=== Saving Data ===")
@@ -265,14 +262,14 @@ def save_data(db):
     jackpots = {}
     for game in JACKPOT_URLS:
         amt = get_jackpot_amount(game)
-        if amt: 
+        if amt:
             jackpots[game] = amt
-            print(f"  {game} jackpot: {amt}")
+            print(f" {game} jackpot: {amt}")
     
     # 按日期排序
     for game in db:
         db[game].sort(key=lambda x: x['date'], reverse=True)
-        print(f"  {game}: {len(db[game])} records")
+        print(f" {game}: {len(db[game])} records")
     
     # 計算總記錄數
     total_records = sum(len(db[game]) for game in db)
