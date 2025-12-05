@@ -17,10 +17,12 @@ function parseCSVLine(line) {
     if (cols.length < 5) return null;
 
     // 判斷遊戲類型
-    const gameNameMap = {
-        '大樂透': 'Lotto649', '威力彩': 'SuperLotto638', '今彩539': 'Daily539',
-        '雙贏彩': 'Lotto1224', '3星彩': '3D', '4星彩': '4D'
-    };
+const gameNameMap = {
+    '大樂透': 'Lotto649', '威力彩': 'SuperLotto638', '今彩539': 'Daily539',
+    '雙贏彩': 'Lotto1224', '3星彩': '3D', '4星彩': '4D',
+    '三星彩': '3D', '四星彩': '4D'
+};
+
     let matchedGame = null;
     for (const [ch, en] of Object.entries(gameNameMap)) {
         if (cols[0].includes(ch)) { matchedGame = en; break; }
@@ -560,6 +562,7 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
 
 
