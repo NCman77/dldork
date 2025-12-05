@@ -61,35 +61,69 @@ function parseCSVLine(line) {
 
 // 下載並解壓縮 ZIP 檔
 export async function fetchAndParseZip(url) {
-    if (!window.JSZip) { console.error("JSZip library not found"); return {}; }
+    console.log(`📦 [ZIP] 開始下載: ${url}`);
+    
+    if (!window.JSZip) { 
+        console.error("❌ [ZIP] JSZip library not found"); 
+        return {}; 
+    }
+    
     try {
         const res = await fetch(url);
-        if (!res.ok) return {};
+        if (!res.ok) {
+            console.error(`❌ [ZIP] HTTP 錯誤: ${url} - Status ${res.status}`);
+            return {};
+        }
+        
+        console.log(`✅ [ZIP] 下載完成: ${url}，開始解壓縮...`);
+        
         const blob = await res.blob();
         const zip = await window.JSZip.loadAsync(blob);
         
+        console.log(`📂 [ZIP] 解壓縮完成: ${url}，檔案數量: ${Object.keys(zip.files).length}`);
+        
         const zipData = {};
+        let processedFiles = 0;
+        let totalLines = 0;
         
         for (const filename of Object.keys(zip.files)) {
             if (filename.toLowerCase().endsWith('.csv') && !filename.startsWith('__')) {
+                console.log(`📄 [ZIP] 處理 CSV: ${filename}`);
+                
                 const text = await zip.files[filename].async("string");
-                // 嘗試不同編碼解碼 (JS 讀出來通常是 UTF-8，若亂碼可能需要 TextDecoder，這裡簡化處理)
                 const lines = text.split(/\r\n|\n/);
+                
+                let validLines = 0;
                 lines.forEach(line => {
                     const parsed = parseCSVLine(line);
                     if (parsed) {
                         if (!zipData[parsed.game]) zipData[parsed.game] = [];
                         zipData[parsed.game].push(parsed.data);
+                        validLines++;
                     }
                 });
+                
+                console.log(`   ✓ ${filename}: ${validLines} 筆有效資料`);
+                processedFiles++;
+                totalLines += validLines;
             }
         }
+        
+        console.log(`📊 [ZIP] 解析完成: ${url}`, {
+            處理檔案數: processedFiles,
+            遊戲種類: Object.keys(zipData).length,
+            總筆數: totalLines,
+            遊戲列表: Object.keys(zipData)
+        });
+        
         return zipData;
+        
     } catch (e) {
-        console.warn(`Failed to parse ZIP ${url}:`, e);
+        console.error(`❌ [ZIP] 處理失敗: ${url}`, e);
         return {};
     }
 }
+
 
 // 取得前端 API 需要的日期區間 (近3個月)
 function getApiDateRange() {
@@ -522,4 +556,5 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
