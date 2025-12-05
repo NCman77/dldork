@@ -91,10 +91,14 @@ export async function fetchAndParseZip(url) {
                 console.log(`📄 [ZIP] 處理 CSV: ${filename}`);
                 
                 const text = await zip.files[filename].async("string");
-                const lines = text.split(/\r\n|\n/);
-                
-                let validLines = 0;
-                lines.forEach(line => {
+const lines = text.split(/\r\n|\n/);
+
+// 🔍 显示前 3 行内容（用于 Debug）
+console.log(`📝 [CSV内容] ${filename} 前 3 行:`, lines.slice(0, 3));
+
+let validLines = 0;
+lines.forEach(line => {
+
                     const parsed = parseCSVLine(line);
                     if (parsed) {
                         if (!zipData[parsed.game]) zipData[parsed.game] = [];
@@ -556,5 +560,6 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
 
