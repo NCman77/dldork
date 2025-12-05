@@ -1,540 +1,323 @@
-/**
- * app.js
- * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V25.16: [FIX] 調整執行順序：優先更新畫面 (Render First)，後執行儲存，確保顯示無誤
- */
-import { GAME_CONFIG } from './game_config.js';
-// [Scheme B] 現在 utils.js 提供所有功能，直接匯入
-import { 
-    getGanZhi, monteCarloSim, calculateZone, 
-    fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData, 
-    saveToCache, saveToFirestore, loadFromFirestore, loadFromCache 
-} from './utils.js';
-
-import { algoStat } from './algo/algo_stat.js';
-import { algoPattern } from './algo/algo_pattern.js';
-import { algoBalance } from './algo/algo_balance.js';
-import { algoAI } from './algo/algo_ai.js';
-import { algoSmartWheel } from './algo/algo_smartwheel.js';
-
-import { applyZiweiLogic } from './algo/algo_Ziwei.js';
-import { applyNameLogic } from './algo/algo_name.js';
-import { applyStarsignLogic } from './algo/algo_starsign.js';
-import { applyWuxingLogic } from './algo/algo_wuxing.js';
-
-// 動態產生 ZIP URL (只到當下年份)
-const currentYear = new Date().getFullYear();
-const zipUrls = [];
-for (let y = 2021; y <= currentYear; y++) {
-    zipUrls.push(`data/${y}.zip`);
-}
-
-const CONFIG = {
-    JSON_URL: 'data/lottery-data.json',
-    ZIP_URLS: zipUrls
-};
-
-const App = {
-    state: {
-        rawData: {}, rawJackpots: {}, 
-        currentGame: "", currentSubMode: null,
-        currentSchool: "balance",
-        filterPeriod: "", filterYear: "", filterMonth: "",
-        profiles: [], user: null, db: null, apiKey: "",
-        drawOrder: 'appear' // 'appear' (開出順序) 或 'size' (大小順序)
-    },
-
-    init() {
-        this.initFirebase();
-        this.selectSchool('balance');
-        this.populateYearSelect();
-        this.populateMonthSelect();
-        
-        // 啟動資料載入
-        this.initFetch();
-        this.bindEvents();
-    },
-
-    bindEvents() {
-        const periodInput = document.getElementById('search-period');
-        if (periodInput) {
-            periodInput.addEventListener('input', (e) => { this.state.filterPeriod = e.target.value.trim(); this.updateDashboard(); });
-        }
-        document.getElementById('search-year').addEventListener('change', (e) => { this.state.filterYear = e.target.value; this.updateDashboard(); });
-        document.getElementById('search-month').addEventListener('change', (e) => { this.state.filterMonth = e.target.value; this.updateDashboard(); });
-    },
-
-    // --- Firebase Logic ---
-    async initFirebase() {
-        if (typeof window.firebaseModules === 'undefined') { this.loadProfilesLocal(); return; }
-        const { initializeApp, getAuth, onAuthStateChanged, getFirestore, getDoc, doc } = window.firebaseModules;
-        const firebaseConfig = { apiKey: "AIzaSyBatltfrvZ5AXixdZBcruClqYrA-9ihsI0", authDomain: "lottery-app-bd106.firebaseapp.com", projectId: "lottery-app-bd106", storageBucket: "lottery-app-bd106.firebasestorage.app", messagingSenderId: "13138331714", appId: "1:13138331714:web:194ac3ff9513d19d9845db" };
-        
-        try { 
-            const app = initializeApp(firebaseConfig); 
-            const auth = getAuth(app); 
-            this.state.db = getFirestore(app); 
-            
-            onAuthStateChanged(auth, async (user) => { 
-                this.state.user = user; 
-                this.updateAuthUI(user); 
-                if (user) { 
-                    await this.loadProfilesCloud(user.uid); 
-                    // 讀取 API Key
-                    const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', user.uid, 'settings', 'api'); 
-                    try {
-                        const snap = await getDoc(ref); 
-                        if(snap.exists()) { this.state.apiKey = snap.data().key; document.getElementById('gemini-api-key').value = this.state.apiKey; } 
-                    } catch (e) { console.warn("Firebase Read Error (Storage blocked?):", e); }
-                } else { 
-                    this.loadProfilesLocal(); 
-                } 
-            }); 
-        } catch(e) { console.error("Firebase Init Error:", e); this.loadProfilesLocal(); }
-    },
-    updateAuthUI(user) {
-        const loginBtn = document.getElementById('btn-login'); const userInfo = document.getElementById('user-info');
-        const userName = document.getElementById('user-name'); const dot = document.getElementById('login-status-dot');
-        if (user) {
-            loginBtn.classList.add('hidden'); userInfo.classList.remove('hidden');
-            userName.innerText = `Hi, ${user.displayName}`;
-            dot.classList.remove('bg-stone-300'); dot.classList.add('bg-green-500');
-        } else {
-            loginBtn.classList.remove('hidden'); userInfo.classList.add('hidden');
-            dot.classList.remove('bg-green-500'); dot.classList.add('bg-stone-300');
-        }
-    },
-    async loginGoogle() { 
-        try {
-            const { getAuth, signInWithPopup, GoogleAuthProvider } = window.firebaseModules; 
-            await signInWithPopup(getAuth(), new GoogleAuthProvider()); 
-        } catch (e) { alert("登入失敗：可能是瀏覽器阻擋了第三方 Cookies"); console.error(e); }
-    },
-    async logoutGoogle() { await window.firebaseModules.signOut(window.firebaseModules.getAuth()); this.state.profiles = []; this.loadProfilesLocal(); },
-    async loadProfilesCloud(uid) { 
-        try {
-            const { doc, getDoc } = window.firebaseModules; 
-            const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', uid, 'profiles', 'main'); 
-            const snap = await getDoc(ref); 
-            this.state.profiles = snap.exists() ? snap.data().list || [] : []; 
-            this.renderProfileSelect(); this.renderProfileList(); 
-        } catch(e) { console.warn("Load Cloud Profiles Failed:", e); }
-    },
-    async saveProfilesCloud() { 
-        try {
-            const { doc, setDoc } = window.firebaseModules; 
-            const ref = doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'profiles', 'main'); 
-            await setDoc(ref, { list: this.state.profiles }); 
-        } catch(e) { console.warn("Save Cloud Profiles Failed:", e); }
-    },
-    loadProfilesLocal() { 
-        try {
-            const stored = localStorage.getItem('lottery_profiles'); 
-            if (stored) this.state.profiles = JSON.parse(stored); 
-        } catch (e) { console.warn("Local Storage Read Blocked"); }
-        this.renderProfileSelect(); this.renderProfileList(); 
-    },
-    saveProfiles() { 
-        if (this.state.user) this.saveProfilesCloud(); 
-        try {
-            localStorage.setItem('lottery_profiles', JSON.stringify(this.state.profiles)); 
-        } catch (e) { console.warn("Local Storage Write Blocked"); }
-        this.renderProfileSelect(); this.renderProfileList(); 
-    },
-    async saveApiKey() { 
-        const key = document.getElementById('gemini-api-key').value.trim(); 
-        if(!key) return alert("請輸入 Key"); 
-        this.state.apiKey = key; 
-        if(this.state.user){ 
-            try {
-                const { doc, setDoc } = window.firebaseModules; 
-                await setDoc(doc(this.state.db, 'artifacts', 'lottery-app', 'users', this.state.user.uid, 'settings', 'api'), {key}); 
-            } catch(e) { console.warn("Firebase save key failed", e); }
-        } else { 
-            try { localStorage.setItem('gemini_key', key); } catch(e){ console.warn("Local storage save key failed"); } 
-        } 
-        alert("已儲存"); 
-    },
-    addProfile() { const name = document.getElementById('new-name').value.trim(); if(!name) return; this.state.profiles.push({ id: Date.now(), name, realname: document.getElementById('new-realname').value, ziwei: document.getElementById('new-ziwei').value, astro: document.getElementById('new-astro').value }); this.saveProfiles(); this.toggleProfileModal(); },
-    deleteProfile(id) { if(confirm('刪除?')) { this.state.profiles = this.state.profiles.filter(p => p.id !== id); this.saveProfiles(); } },
-    toggleProfileModal() { const m = document.getElementById('profile-modal'); const c = document.getElementById('profile-modal-content'); if(m.classList.contains('hidden')){ m.classList.remove('hidden'); setTimeout(()=>c.classList.remove('scale-95','opacity-0'),10); }else{ c.classList.add('scale-95','opacity-0'); setTimeout(()=>m.classList.add('hidden'),200); } },
-    renderProfileList() { document.getElementById('profile-list').innerHTML = this.state.profiles.map(p=>`<div class="flex justify-between p-2 bg-stone-50 border rounded"><div class="font-bold text-stone-700 text-xs">${p.name}</div><button onclick="app.deleteProfile(${p.id})" class="text-red-400 text-xs">刪除</button></div>`).join(''); },
-    renderProfileSelect() { document.getElementById('profile-select').innerHTML = '<option value="">請新增...</option>'+this.state.profiles.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''); },
-    deleteCurrentProfile() { const pid = document.getElementById('profile-select').value; if(pid && confirm('刪除?')) { this.deleteProfile(Number(pid)); document.getElementById('profile-select').value=""; this.onProfileChange(); } },
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>台彩全能分析儀 2.0</title>
     
-    // --- AI Fortune Logic ---
-    async generateAIFortune() { 
-        const pid = document.getElementById('profile-select').value; 
-        if(!pid||!this.state.apiKey) return alert("請選主角並設定Key"); 
-        document.getElementById('ai-loading').classList.remove('hidden'); 
-        document.getElementById('btn-calc-ai').disabled=true; 
-        const p = this.state.profiles.find(x=>x.id==pid); 
-        const currentYear = new Date().getFullYear();
-        const ganZhi = getGanZhi(currentYear);
-        const useName = document.getElementById('check-name') ? document.getElementById('check-name').checked : false;
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-        let prompt = `你現在是資深的國學易經術數領域專家...`; 
-        if (useName) { prompt += `【姓名學特別指令】...`; }
-        prompt += `請務必回傳純 JSON 格式...`; 
-
-        try{ 
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${this.state.apiKey}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})}); 
-            const d=await res.json(); 
-            p.fortune2025=JSON.parse(d.candidates[0].content.parts[0].text.replace(/``````/g,'').trim()); 
-            this.saveProfiles(); 
-            this.onProfileChange(); 
-        }catch(e){alert("AI 分析失敗"); console.error(e);}finally{document.getElementById('ai-loading').classList.add('hidden');document.getElementById('btn-calc-ai').disabled=false;} 
-    },
-    onProfileChange() { 
-        const pid = document.getElementById('profile-select').value; 
-        const s = document.getElementById('ai-fortune-section'); 
-        if(!pid){s.classList.add('hidden');return;} 
-        s.classList.remove('hidden'); 
-        const p=this.state.profiles.find(x=>x.id==pid); 
-        const d=document.getElementById('ai-result-display'); 
-        if(p&&p.fortune2025){ 
-            d.classList.remove('hidden'); 
-            let html = `<div class="font-bold mb-1">📅 流年運勢:</div><p>${p.fortune2025.year_analysis}</p>`;
-            if(p.fortune2025.name_analysis) html += `<div class="mt-2 pt-2 border-t border-pink-100"><div class="font-bold mb-1">✍️ 姓名靈動:</div><p class="text-[10px]">${p.fortune2025.name_analysis.rationale}</p></div>`;
-            d.innerHTML = html;
-            document.getElementById('btn-calc-ai').innerText="🔄 重新批算"; 
-            document.getElementById('btn-clear-ai').classList.remove('hidden'); 
-        }else{ 
-            d.classList.add('hidden'); 
-            document.getElementById('btn-calc-ai').innerText="✨ 大師批流年"; 
-            document.getElementById('btn-clear-ai').classList.add('hidden'); 
-        } 
-    },
-    clearFortune() { const pid=document.getElementById('profile-select').value; const p=this.state.profiles.find(x=>x.id==pid); if(p){delete p.fortune2025; this.saveProfiles(); this.onProfileChange();} },
-
-    // --- Core Data Logic (Progressive Rendering + Sync) ---
-    async initFetch() {
-        // [FIX] 設定初始狀態：黃燈 (連線更新中)
-        this.setSystemStatus('loading');
-
-        try {
-        // [Phase 0] 極速載入：優先從 Firebase 讀取快取
-        let quickLoaded = false;
-        if (this.state.db) {
-            try {
-                const fbData = await loadFromFirestore(this.state.db);
-                if (fbData && Object.keys(fbData).length > 0) {
-                    console.log("⚡ [快取命中] 從 Firebase 極速載入");
-                    const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
-                    this.processAndRender(quickData);
-                    quickLoaded = true;
-                }
-            } catch (e) {
-                console.warn("⚠️ Firebase 快取讀取失敗，改用完整載入", e);
-            }
-        }
-
-            // [Phase 1] 秒開：讀取靜態資源 & Firestore
-            const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
-            let baseData = {};
-            if (jsonRes.ok) {
-                const jsonData = await jsonRes.json();
-                baseData = jsonData.games || jsonData;
-                this.state.rawJackpots = jsonData.jackpots || {};
-                if(jsonData.last_updated) document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
-            }
-
-            const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
-    try {
-        return await fetchAndParseZip(url);
-    } catch (e) {
-        console.warn(`⚠️ ZIP 載入失敗: ${url}`, e);
-        return { games: {} }; // 返回空数据
-    }
-});
-const zipResults = await Promise.all(zipPromises);
-console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個檔案`);
-
-
-            // 讀取 LocalStorage 與 Firestore
-            const localCache = loadFromCache()?.data || {};
-            let firestoreData = {};
-            if (this.state.db) { firestoreData = await loadFromFirestore(this.state.db); }
-
-            // 第一次合併與渲染
-            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
-            this.processAndRender(initialData);
-
-            // [Phase 2] 背景執行：抓取 Live Data (不阻塞畫面)
-            console.log("🚀 [System] 背景啟動 Live API 抓取...");
-            
-            const liveData = await fetchLiveLotteryData();
-
-            // [Phase 3] 熱更新
-            if (liveData && Object.keys(liveData).length > 0) {
-                console.log("🚀 [System] Live Data 抓取成功，更新介面...");
-                
-                // [FIX V25.16] 關鍵修正：優先執行 UI 渲染 (UI First)
-                // 先將畫面更新，確保使用者看到號碼
-                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
-                this.processAndRender(finalData);
-                    // [FIX] 強制刷新畫面以顯示最新號碼
-                if (this.state.currentGame) {
-                this.updateDashboard();
-    }
-
-                // [FIX V25.16] 後執行儲存 (Fire-and-forget)
-                // 這樣即使權限錯誤崩潰，也不會影響已經更新的畫面
-                try {
-                    saveToCache(liveData); 
-                } catch (e) {
-                    console.warn("⚠️ Local Cache 寫入失敗 (隱私模式或權限受限):", e);
-                }
-                
-                if (this.state.db) { 
-    saveToFirestore(this.state.db, liveData).catch(e => {
-        console.warn("⚠️ Firestore 寫入失敗:", e);
-    });
-}
-
-            }
-
-            // [Phase 4] 最終狀態檢查 (嚴格紅綠燈)
-            this.checkSystemStatus();
-
-        } catch(e) { 
-            console.error("Critical Data Error:", e);
-            // 發生錯誤也強制檢查狀態 (會變成紅燈)
-            this.checkSystemStatus(); 
-            this.renderGameButtons(); 
-        } 
-    },
-
-    processAndRender(mergedData) {
-        this.state.rawData = mergedData.games || {};
-        // 確保日期是 Date 物件
-        for (let game in this.state.rawData) { 
-            this.state.rawData[game] = this.state.rawData[game].map(item => ({...item, date: new Date(item.date)})); 
-        }
-        this.renderGameButtons();
-    },
-
-    setSystemStatus(status, dateStr = "") {
-        const text = document.getElementById('system-status-text');
-        const icon = document.getElementById('system-status-icon');
-        if (status === 'loading') {
-            text.innerText = "連線更新中...";
-            text.className = "text-yellow-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
-        } else if (status === 'success') {
-            text.innerText = "系統連線正常";
-            text.className = "text-green-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-green-500";
-        } else {
-            text.innerText = `資料過期 ${dateStr ? `(${dateStr})` : ""}`;
-            text.className = "text-red-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-red-500";
-        }
-    },
-
-    checkSystemStatus() {
-        let hasLatestData = false;
-        let latestDateObj = null;
-        const today = new Date();
-        const threeDaysAgo = new Date();
-        threeDaysAgo.setDate(today.getDate() - 3); // 定義過期標準：3天
-        
-        // 檢查任意遊戲是否有近三天的資料
-        for (let game in this.state.rawData) {
-            if (this.state.rawData[game].length > 0) {
-                const lastDate = this.state.rawData[game][0].date;
-                if (!latestDateObj || lastDate > latestDateObj) {
-                    latestDateObj = lastDate;
-                }
-                if (lastDate >= threeDaysAgo) {
-                    hasLatestData = true;
-                }
-            }
-        }
-
-        const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
-        const dateStr = latestDateObj ? latestDateObj.toLocaleDateString() : "無資料";
-
-        // [FIX] 嚴格判斷：如果資料過期，強制顯示紅燈
-        if (dataCount === 0 || !hasLatestData) {
-            this.setSystemStatus('error', dateStr);
-        } else {
-            this.setSystemStatus('success');
-        }
-    },
-
-    renderGameButtons() { const container = document.getElementById('game-btn-container'); container.innerHTML = ''; GAME_CONFIG.ORDER.forEach(gameName => { const btn = document.createElement('div'); btn.className = `game-tab-btn ${gameName === this.state.currentGame ? 'active' : ''}`; btn.innerText = gameName; btn.onclick = () => { this.state.currentGame = gameName; this.state.currentSubMode = null; this.resetFilter(); document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active')); btn.classList.add('active'); this.updateDashboard(); }; container.appendChild(btn); }); if (!this.state.currentGame && GAME_CONFIG.ORDER.length > 0) { this.state.currentGame = GAME_CONFIG.ORDER[0]; container.querySelector('.game-tab-btn')?.classList.add('active'); this.updateDashboard(); } },
-    updateDashboard() { const gameName = this.state.currentGame; const gameDef = GAME_CONFIG.GAMES[gameName]; let data = this.state.rawData[gameName] || []; if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod)); if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear)); if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth)); document.getElementById('current-game-title').innerText = gameName; document.getElementById('total-count').innerText = data.length; document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期"; const jackpotContainer = document.getElementById('jackpot-container'); if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) { jackpotContainer.classList.remove('hidden'); document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`; } else { jackpotContainer.classList.add('hidden'); } this.renderSubModeUI(gameDef); this.renderHotStats('stat-year', data); this.renderHotStats('stat-month', data.slice(0, 30)); this.renderHotStats('stat-recent', data.slice(0, 10)); document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0); 
+    <!-- Firebase SDK -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { 
+        getFirestore, 
+        doc, 
+        setDoc, 
+        getDoc, 
+        onSnapshot,
+        collection,
+        getDocs,
+        query,
+        where,
+        orderBy,
+        limit,
+        writeBatch
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     
-        // [NEW] 渲染順序切換按鈕
-        this.renderDrawOrderControls(); 
+    window.firebaseModules = { 
+        initializeApp, 
+        getAuth, 
+        signInWithPopup, 
+        GoogleAuthProvider, 
+        onAuthStateChanged, 
+        signOut, 
+        getFirestore, 
+        doc, 
+        setDoc, 
+        getDoc, 
+        onSnapshot,
+        collection,
+        getDocs,
+        query,
+        where,
+        orderBy,
+        limit,
+        writeBatch
+    };
+</script>
 
-        this.renderHistoryList(data.slice(0, 5)); 
-    },
 
-    // [NEW] 渲染大小順序/開出順序的控制按鈕
-    renderDrawOrderControls() {
-        const container = document.getElementById('draw-order-controls');
-        if (!container) return;
+    <style>
+        body { background-color: #f7f6f2; color: #44403c; letter-spacing: 0.05em; }
         
-        container.classList.remove('hidden'); // 預設顯示
-
-        container.innerHTML = `
-            <span class="text-[10px] text-stone-400 font-bold mr-1">顯示:</span>
-            <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
-            <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
-        `;
-        
-        // 確保 CSS 樣式存在
-        if (!document.getElementById('order-btn-style')) {
-             document.head.insertAdjacentHTML('beforeend', `
-            <style id="order-btn-style">
-                .order-btn {
-                    padding: 2px 8px; font-size: 10px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms;
-                }
-                .order-btn.active {
-                    background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-                }
-                .order-btn:hover {
-                    background-color: #e7e5e4;
-                }
-                .order-btn.active:hover {
-                    background-color: #059669;
-                }
-            </style>
-        `);
+        /* 文青風 Tab 按鈕樣式 */
+        .game-tab-btn { 
+            padding: 10px 24px; 
+            border-radius: 9999px; 
+            font-size: 1.125rem; 
+            font-weight: 700; 
+            transition: all 0.2s ease; 
+            cursor: pointer; 
+            white-space: nowrap;
+            background-color: #f5f5f4; 
+            color: #a8a29e; 
+            border: 2px solid transparent; 
         }
-    },
+        .game-tab-btn:hover { background-color: #e7e5e4; color: #57534e; }
+        
+        /* 選取狀態：深色邊框 */
+        .game-tab-btn.active { 
+            background-color: #fff; 
+            color: #44403c; 
+            border-color: #44403c; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
 
-    // [NEW] 設定顯示順序
-    setDrawOrder(order) {
-        if (this.state.drawOrder === order) return;
-        this.state.drawOrder = order;
-        this.updateDashboard(); // 刷新歷史列表 (會重新呼叫 renderDrawOrderControls 更新按鈕狀態)
-    },
+        .school-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; border: 2px solid transparent; background-color: #fff; border-radius: 1rem; }
+        .school-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
+        .school-card.active { background-color: #fffaf0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
+        
+        .school-stat { color: #475569; } .school-pattern { color: #7c3aed; } .school-balance { color: #059669; } .school-ai { color: #d97706; } .school-wuxing { color: #be185d; }
+        
+        /* 球號尺寸設定 */
+        .ball { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 24px; position: relative; z-index: 1; box-shadow: 2px 3px 6px rgba(0,0,0,0.1); }
+        .ball-hot { background: #e11d48; color: #fffaf0; } 
+        
+        /* 歷史紀錄 & 推薦組合 (中型 42px - 您指定的尺寸) */
+        .ball-sm { width: 42px; height: 42px; font-size: 18px; border-radius: 50%; background: #fff; color: #57534e; border: 1px solid #d6d3d1; box-shadow: 1px 2px 4px rgba(0,0,0,0.05); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; margin-right: 4px; }
+        .ball-special { border-color: #f43f5e; color: #f43f5e; background: #fff1f2; }
+        
+        .stat-box { background: #fff; border-radius: 16px; padding: 16px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02); border: 1px solid #f0ebe4; }
+        
+        .submode-tab { padding: 4px 12px; border-radius: 999px; border: 1px solid #e7e5e4; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; background: white; color: #57534e; }
+        .submode-tab.active { background: #57534e; color: white; border-color: #57534e; font-weight: bold; }
 
-    renderSubModeUI(gameDef) { const area = document.getElementById('submode-area'); const container = document.getElementById('submode-tabs'); const rulesContent = document.getElementById('game-rules-content'); rulesContent.classList.add('hidden'); if (gameDef.subModes) { area.classList.remove('hidden'); container.innerHTML = ''; if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id; gameDef.subModes.forEach(mode => { const tab = document.createElement('div'); tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`; tab.innerText = mode.name; tab.onclick = () => { this.state.currentSubMode = mode.id; document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); }; container.appendChild(tab); }); rulesContent.innerHTML = gameDef.article || "暫無說明"; } else { area.classList.add('hidden'); this.state.currentSubMode = null; } },
-    toggleRules() { document.getElementById('game-rules-content').classList.toggle('hidden'); },
-    renderHistoryList(data) { 
-        const list = document.getElementById('history-list'); 
-        list.innerHTML = ''; 
-        data.forEach(item => { 
-            let numsHtml = ""; 
-            const gameDef = GAME_CONFIG.GAMES[this.state.currentGame]; 
-            
-            // [FIXED] 根據 drawOrder 選擇要顯示的號碼列表
-            // utils.js 已經將 'drawNumberAppear' 映射到 item.numbers (預設)
-            // 並將 'drawNumberSize' 映射到 item.numbers_size
-            let sourceNumbers = [];
-            if (this.state.drawOrder === 'size') {
-                sourceNumbers = (item.numbers_size && item.numbers_size.length > 0) ? item.numbers_size : item.numbers;
-            } else {
-                sourceNumbers = item.numbers || [];
-            }
+        .hide-scrollbar::-webkit-scrollbar { display: none; } .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .custom-input { background-color: #f5f5f4; border: 1px solid #e7e5e4; color: #44403c; transition: all 0.2s; }
+        .custom-input:focus { background-color: #fff; border-color: #a8a29e; outline: none; }
+        .custom-select { appearance: none; background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2378716c' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1em 1em; }
+        
+        .reason-tag { font-size: 0.65rem; margin-top: 6px; color: #57534e; background: #f5f5f4; padding: 2px 6px; border-radius: 4px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; text-align: center; font-weight: 700; border: 1px solid #e7e5e4; }
+        
+        .modal-overlay { background-color: rgba(41, 37, 36, 0.6); backdrop-filter: blur(4px); }
+        .spinner { border: 3px solid rgba(0,0,0,0.1); border-radius: 50%; border-top: 3px solid #be185d; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .rotate-180 { transform: rotate(180deg); }
+        
+        .title-divider { display: flex; align-items: center; justify-content: center; width: 100%; color: #44403c; font-size: 1.25rem; font-weight: 900; letter-spacing: 0.05em; }
+        .title-divider::before, .title-divider::after { content: ''; display: block; flex: 1; height: 2px; background-color: #e7e5e4; border-radius: 2px; }
+        .title-divider::before { margin-right: 1.5rem; }
+        .title-divider::after { margin-left: 1.5rem; }
+    </style>
+</head>
+<body class="p-4 md:p-6 min-h-screen flex flex-col font-medium text-sm">
 
-            const numbers = sourceNumbers.filter(n => typeof n === 'number');
-            
-            if (gameDef.type === 'digit') { 
-                numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join(''); 
-            } else { 
-                const len = numbers.length; 
-                let normal = [], special = null; 
+    <div class="max-w-6xl mx-auto w-full relative">
+        
+        <!-- Header -->
+        <div class="relative mb-8 flex justify-center items-center h-20">
+            <div class="text-center">
+                <h1 class="text-3xl md:text-4xl font-black text-stone-800 tracking-wider">台彩全能分析儀</h1>
+                <p class="text-xs text-stone-500 font-bold tracking-[0.2em] mt-2 uppercase">數據融合 • 智能戰術 • 雙區運算</p>
+            </div>
+            <button onclick="app.toggleProfileModal()" class="absolute right-0 top-0 bg-white p-2 rounded-xl shadow-sm border border-stone-200 hover:shadow-md transition group" title="個人檔案管理">
+                <span class="text-lg group-hover:scale-110 transition-transform block">👤</span>
+                <span id="login-status-dot" class="absolute top-2 right-2 w-1.5 h-1.5 bg-stone-300 rounded-full"></span>
+            </button>
+        </div>
+
+        <!-- Dashboard -->
+        <div id="dashboard-area" class="bg-white rounded-3xl p-6 md:p-8 shadow-lg border border-stone-100 mb-8 animate-[fadeIn_0.5s_ease-out]">
+            <div class="flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-8 pb-6">
+                <!-- 1. 左側 -->
+                <div class="flex-shrink-0 flex items-center gap-4">
+                    <span class="text-5xl">🎯</span>
+                    <div class="flex flex-col">
+                        <h2 class="text-4xl font-black text-stone-800 tracking-tight" id="current-game-title">載入中</h2>
+                        <span class="text-stone-400 text-sm font-bold tracking-widest mt-1" id="latest-period">--期</span>
+                    </div>
+                </div>
+                <!-- 2. 中間 -->
+                <div class="flex-1 flex justify-start lg:justify-center w-full lg:w-auto overflow-x-auto hide-scrollbar px-2">
+                    <div class="flex flex-nowrap gap-3" id="game-btn-container"></div>
+                </div>
+                <!-- 3. 右側 -->
+                <div class="flex-shrink-0 flex items-center gap-2">
+                    <div class="bg-stone-50 p-1.5 rounded-xl flex items-center gap-1.5 border border-stone-100">
+                        <select id="search-year" class="custom-input custom-select w-20 rounded-lg px-2 py-1.5 text-xs font-bold cursor-pointer"><option value="">年份</option></select>
+                        <select id="search-month" class="custom-input custom-select w-20 rounded-lg px-2 py-1.5 text-xs font-bold cursor-pointer"><option value="">月份</option></select>
+                        <button onclick="app.resetFilter()" class="bg-white border border-stone-200 text-stone-400 hover:text-stone-600 hover:border-stone-300 px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap">重置</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 底部資訊列 -->
+            <div class="pt-4 border-t border-stone-100 flex flex-wrap md:flex-nowrap justify-between items-center text-sm font-bold text-stone-400 gap-4 h-14 min-h-[3.5rem]">
+                <div class="flex items-center gap-2 min-w-max">
+                    <span id="system-status-icon" class="w-2 h-2 rounded-full bg-green-500"></span>
+                    <span id="system-status-text" class="text-green-600">系統連線正常</span>
+                </div>
+                <div id="submode-area" class="hidden flex-1 flex justify-center items-center gap-3">
+                    <div class="flex gap-2" id="submode-tabs"></div>
+                    <button onclick="app.toggleRules()" class="text-stone-400 hover:text-stone-600 underline whitespace-nowrap">規則說明</button>
+                </div>
+                <div class="flex gap-4 min-w-max">
+                    <span>資料庫：<span id="total-count" class="text-stone-600">0</span> 期</span>
+                    <span>更新：<span id="last-update-time">--</span></span>
+                    <div id="jackpot-container" class="hidden text-yellow-600 flex items-center gap-1">
+                        <span class="uppercase tracking-wider">Jackpot</span>
+                        <span class="font-black" id="jackpot-amount">$ --</span>
+                    </div>
+                </div>
+            </div>
+            <div id="game-rules-content" class="hidden mt-3 p-4 bg-stone-50 rounded-xl border border-stone-100 text-xs text-stone-600 leading-relaxed"></div>
+        </div>
+
+        <!-- 熱門統計 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="stat-box">
+                <h4 class="font-bold text-rose-500 text-sm uppercase mb-3 flex justify-between tracking-widest">🔥 年度熱門 <span class="text-rose-300">Year</span></h4>
+                <div id="stat-year" class="flex flex-wrap gap-2 justify-center"></div>
+            </div>
+            <div class="stat-box">
+                <h4 class="font-bold text-amber-500 text-sm uppercase mb-3 flex justify-between tracking-widest">📅 本月熱門 <span class="text-amber-300">Month</span></h4>
+                <div id="stat-month" class="flex flex-wrap gap-2 justify-center"></div>
+            </div>
+            <div class="stat-box">
+                <h4 class="font-bold text-sky-500 text-sm uppercase mb-3 flex justify-between tracking-widest">⚡ 近期熱勢 <span class="text-sky-300">Trend</span></h4>
+                <div id="stat-recent" class="flex flex-wrap gap-2 justify-center"></div>
+            </div>
+        </div>
+
+        <!-- 歷史紀錄 -->
+        <div class="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden mb-12">
+            <div class="bg-stone-50 px-5 py-3 border-b border-stone-200 flex justify-between items-center cursor-pointer hover:bg-stone-100 transition group" onclick="app.toggleHistory()">
+                <div class="flex items-center gap-4">
+                    <h4 class="font-bold text-stone-700 text-base flex items-center gap-2">📅 歷史開獎記錄</h4>
+                    <!-- 新增：顯示順序切換按鈕容器 (阻止冒泡防止觸發折疊) -->
+                    <div id="draw-order-controls" class="hidden flex items-center gap-2" onclick="event.stopPropagation()"></div>
+                </div>
                 
-                // 修正大樂透/威力彩的特別號分離邏輯
-                if ((gameDef.type === 'power' || gameDef.special) && len > gameDef.count) { 
-                    // 特別號通常在最後一位
-                    special = numbers[len-1]; 
-                    normal = numbers.slice(0, len-1); 
-                } else { 
-                    normal = numbers; 
-                } 
-                
-                numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join(''); 
-                if (special !== null && typeof special === 'number') {
-                    numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
-                }
-            } 
-            list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`; 
-        }); 
-    },
-    renderHotStats(elId, dataset) { const el = document.getElementById(elId); if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; } const freq = {}; dataset.forEach(d => d.numbers.forEach(n => freq[n] = (freq[n]||0)+1)); const sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 5); el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join(''); },
-    selectSchool(school) { this.state.currentSchool = school; const info = GAME_CONFIG.SCHOOLS[school]; document.querySelectorAll('.school-card').forEach(el => { el.classList.remove('active'); Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if(s.color) el.classList.remove(s.color); }); }); const activeCard = document.querySelector(`.school-${school}`); if(activeCard) { activeCard.classList.add('active'); activeCard.classList.add(info.color); } const container = document.getElementById('school-description'); container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`; container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`; document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing'); },
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition" id="history-toggle-text">顯示近 5 期</span>
+                    <span id="history-arrow" class="text-stone-400 text-xs transition-transform transform rotate-0">▼</span>
+                </div>
+            </div>
+            <div id="history-container" class="max-h-0 overflow-hidden transition-all duration-500 ease-in-out">
+                <div class="overflow-x-auto p-1">
+                    <table class="w-full text-left">
+                        <thead class="text-sm font-bold text-stone-400 uppercase">
+                            <tr><th class="px-5 py-3 bg-white sticky top-0 w-32">期別</th><th class="px-5 py-3 bg-white sticky top-0">號碼</th></tr>
+                        </thead>
+                        <tbody id="history-list" class="divide-y divide-stone-100 text-sm"></tbody>
+                    </table>
+                </div>
+                <div id="no-result-msg" class="hidden text-center py-8 text-stone-400 font-bold text-xs">無符合資料</div>
+            </div>
+        </div>
 
-    // 呼叫專家級演算法 (委託給 utils)
-    runPrediction() {
-        const gameName = this.state.currentGame;
-        const gameDef = GAME_CONFIG.GAMES[gameName];
-        let data = this.state.rawData[gameName] || [];
-        if(!gameDef) return;
-        
-        const countVal = document.querySelector('input[name="count"]:checked').value;
-        const container = document.getElementById('prediction-output');
-        container.innerHTML = '';
-        document.getElementById('result-area').classList.remove('hidden');
+        <!-- 戰術流派 -->
+        <div id="strategy-area" class="mb-12">
+            <div class="title-divider mb-8">🧠 戰術流派</div>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                <div class="school-card school-balance p-4 relative" onclick="app.selectSchool('balance')"><div class="flex items-center gap-1 mb-1"><div class="text-xl">⚖️</div><h4 class="font-bold text-lg">平衡學派</h4></div><p class="text-sm opacity-70">結構防守</p></div>
+                <div class="school-card school-stat p-4 relative" onclick="app.selectSchool('stat')"><div class="flex items-center gap-1 mb-1"><div class="text-xl">📊</div><h4 class="font-bold text-lg">統計學派</h4></div><p class="text-sm opacity-70">數據熱度</p></div>
+                <div class="school-card school-pattern p-4 relative" onclick="app.selectSchool('pattern')"><div class="flex items-center gap-1 mb-1"><div class="text-xl">🔗</div><h4 class="font-bold text-lg">關聯學派</h4></div><p class="text-sm opacity-70">拖牌版路</p></div>
+                <div class="school-card school-ai p-4 relative" onclick="app.selectSchool('ai')"><div class="flex items-center gap-1 mb-1"><div class="text-xl">🤖</div><h4 class="font-bold text-lg">AI 學派</h4></div><p class="text-sm opacity-70">近期趨勢</p></div>
+                <div class="school-card school-wuxing p-4 relative col-span-2 md:col-span-1" onclick="app.selectSchool('wuxing')"><div class="flex items-center gap-1 mb-1"><div class="text-xl">🔮</div><h4 class="font-bold text-lg">五行生肖</h4></div><p class="text-sm opacity-70">個人運勢</p></div>
+            </div>
 
-        if (countVal === 'pack') { this.algoSmartWheel(data, gameDef); return; }
+            <div class="bg-white rounded-2xl p-6 shadow-lg border border-stone-100 relative overflow-hidden">
+                <div id="school-description" class="relative z-10 mb-6 text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 border-stone-400"></div>
+                <div id="wuxing-options" class="hidden relative z-10 mb-6 mt-8 bg-pink-50/50 p-4 rounded-xl border border-pink-100">
+                    <div class="flex flex-col gap-4">
+                        <div class="flex gap-2 items-center">
+                            <label class="text-base font-bold text-pink-700 whitespace-nowrap">運勢主角</label>
+                            <select id="profile-select" onchange="app.onProfileChange()" class="custom-select flex-1 bg-white border border-pink-200 rounded-lg px-3 py-2 text-base font-bold text-stone-700 cursor-pointer"><option value="">請新增...</option></select>
+                            <button onclick="app.deleteCurrentProfile()" class="bg-white text-red-400 px-3 py-2 rounded-lg hover:bg-red-50 border border-pink-200 text-base">🗑️</button>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            <label class="flex items-center gap-2 cursor-pointer bg-white p-2 rounded-lg border border-pink-100"><input type="checkbox" id="check-purple" class="accent-pink-600" checked><span class="text-base font-bold text-stone-600">紫微</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer bg-white p-2 rounded-lg border border-pink-100"><input type="checkbox" id="check-astro" class="accent-pink-600" checked><span class="text-base font-bold text-stone-600">星盤</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer bg-white p-2 rounded-lg border border-pink-100"><input type="checkbox" id="check-name" class="accent-pink-600" checked><span class="text-base font-bold text-stone-600">姓名</span></label>
+                            <label class="flex items-center gap-2 cursor-pointer bg-white p-2 rounded-lg border border-pink-100"><input type="checkbox" id="check-zodiac" class="accent-pink-600" checked><span class="text-base font-bold text-stone-600">生肖</span></label>
+                        </div>
+                        <div id="ai-fortune-section" class="hidden border-t border-pink-200 pt-3">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-pink-800 font-bold text-base">🔮 AI 流年解析</h4>
+                                <div class="flex gap-2">
+                                    <button onclick="app.clearFortune()" id="btn-clear-ai" class="hidden text-sm text-stone-400 underline hover:text-pink-600">清除</button>
+                                    <button onclick="app.generateAIFortune()" id="btn-calc-ai" class="bg-pink-600 text-white px-3 py-1.5 rounded-lg text-base font-bold hover:bg-pink-700 transition flex items-center gap-1 shadow-sm">✨ 大師批流年</button>
+                                </div>
+                            </div>
+                            <div id="ai-result-display" class="hidden bg-white p-3 rounded-lg border border-pink-100 text-sm text-stone-600 leading-relaxed shadow-inner max-h-32 overflow-y-auto custom-scrollbar"></div>
+                            <div id="ai-loading" class="hidden mt-2 text-sm text-pink-600 font-bold flex items-center gap-2 justify-center"><div class="spinner"></div> 分析中...</div>
+                        </div>
+                    </div>
+                </div>
 
-        const count = parseInt(countVal);
-        const params = { data, gameDef, subModeId: this.state.currentSubMode };
+                <div class="relative z-10 flex flex-col items-center gap-6 border-t border-stone-100 pt-6">
+                    <div class="flex items-center bg-stone-50 p-1.5 rounded-xl border border-stone-100">
+                        <span class="text-xs font-bold text-stone-400 px-3">數量</span>
+                        <div class="flex gap-1">
+                            <label class="cursor-pointer"><input type="radio" name="count" value="1" class="peer hidden" checked><span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">1</span></label>
+                            <label class="cursor-pointer"><input type="radio" name="count" value="3" class="peer hidden"><span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">3</span></label>
+                            <label class="cursor-pointer"><input type="radio" name="count" value="5" class="peer hidden"><span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">5</span></label>
+                            <!-- 新增：包牌按鈕 -->
+                            <label class="cursor-pointer"><input type="radio" name="count" value="pack" class="peer hidden"><span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">🛍️ 包牌</span></label>
+                        </div>
+                    </div>
+                    <button onclick="app.runPrediction()" class="w-full md:w-auto bg-stone-800 hover:bg-stone-700 text-stone-50 px-12 py-3 rounded-xl font-bold text-lg shadow-lg shadow-stone-200 active:scale-95 transition-all flex items-center justify-center gap-2">
+                        <span>🚀</span> 執行智能分析
+                    </button>
+                </div>
 
-        for(let i=0; iunt; i++) {
-            let result = null;
-            switch(this.state.currentSchool) {
-                case 'stat': result = algoStat(params); break;
-                case 'pattern': result = algoPattern(params); break;
-                case 'balance': result = algoBalance(params); break;
-                case 'ai': result = algoAI(params); break;
-                case 'wuxing': result = this.algoWuxing(params); break; 
-            }
-            if (result) {
-                if(!monteCarloSim(result.numbers, gameDef)) {
-                   result = algoStat(params);
-                }
-                this.renderRow(result, i+1);
-            }
-        }
-    },
-    
-    // 將五行邏輯整合回 runPrediction 
-    algoWuxing({ gameDef }) {
-        const wuxingWeights = {};
-        const wuxingTagMap = {};
-        for(let k=(gameDef.type==='digit'?0:1); k<=gameDef.range; k++) {
-            wuxingWeights[k] = 10;
-        }
-        for(let k=(gameDef.type==='digit'?0:1); k<=gameDef.range; k++) {
-             wuxingWeights[k] = 10;
-             wuxingTagMap[k] = "基礎運數"; 
-        }
-        const pid = document.getElementById('profile-select').value;
-        const profile = this.state.profiles.find(p => p.id == pid);
-        applyZiweiLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
-        applyNameLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
-        applyStarsignLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
-        applyWuxingLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
-        const wuxingContext = { tagMap: wuxingTagMap };
-        const pickZone1 = calculateZone([], gameDef.range, gameDef.count, false, 'wuxing', [], wuxingWeights, null, wuxingContext);
-        let pickZone2 = [];
-        if (gameDef.type === 'power') pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
-        const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
-        const dominant = tags.sort((a,b) => tags.filter(v => v===a).length - tags.filter(v => v===b).length).pop();
-        return { 
-            numbers: [...pickZone1, ...pickZone2], 
-            groupReason: `💡 流年格局：[${dominant}] 主導。`
-        };
-    },
+                <div id="result-area" class="mt-10 hidden border-t border-stone-100 pt-8">
+                    <div class="title-divider mb-6">💎 推薦號碼組合</div>
+                    <div id="prediction-output" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
 
-    algoSmartWheel(data, gameDef) {
-        const results = algoSmartWheel(data, gameDef);
-        results.forEach((res, idx) => this.renderRow({numbers: res.numbers.map(n=>({val:n, tag:'包牌'})), groupReason: res.groupReason}, idx+1));
-    },
+        <div class="text-center mt-8 text-[10px] text-stone-300 font-bold pb-4">DESIGNED FOR LOTTERY ANALYSIS</div>
+    </div>
 
-    renderRow(resultObj, index) { const container = document.getElementById('prediction-output'); const colors = { stat: 'bg-stone-200 text-stone-700', pattern: 'bg-purple-100 text-purple-700', balance: 'bg-emerald-100 text-emerald-800', ai: 'bg-amber-100 text-amber-800', wuxing: 'bg-pink-100 text-pink-800' }; const colorClass = colors[this.state.currentSchool] || 'bg-stone-200'; let html = `<div class="flex flex-col gap-2 p-4 bg-white rounded-xl border border-stone-200 shadow-sm animate-fade-in hover:shadow-md transition"><div class="flex items-center gap-3"><span class="text-[10px] font-black text-stone-300 tracking-widest">SET ${index}</span><div class="flex flex-wrap gap-2">`; resultObj.numbers.forEach(item => { html += `<div class="flex flex-col items-center"><div class="ball-sm ${colorClass}" style="box-shadow: none;">${item.val}</div>${item.tag ? `<div class="reason-tag">${item.tag}</div>` : ''}</div>`; }); html += `</div></div>`; if (resultObj.groupReason) { html += `<div class="text-[10px] text-stone-500 font-medium bg-stone-50 px-2 py-1.5 rounded border border-stone-100 flex items-center gap-1"><span class="text-sm">💡</span> ${resultObj.groupReason}</div>`; } html += `</div>`; container.innerHTML += html; },
-    populateYearSelect() { const yearSelect = document.getElementById('search-year'); const cy = new Date().getFullYear(); for (let y = 2021; y <= cy; y++) { const opt = document.createElement('option'); opt.value = y; opt.innerText = `${y}`; yearSelect.appendChild(opt); } },
-    populateMonthSelect() { const monthSelect = document.getElementById('search-month'); for (let m = 1; m <= 12; m++) { const opt = document.createElement('option'); opt.value = m; opt.innerText = `${m} 月`; monthSelect.appendChild(opt); } },
-    resetFilter() { this.state.filterPeriod = ""; this.state.filterYear = ""; this.state.filterMonth = ""; const pInput = document.getElementById('search-period'); if(pInput) pInput.value = ""; document.getElementById('search-year').value = ""; document.getElementById('search-month').value = ""; this.updateDashboard(); },
-    toggleHistory() { const c = document.getElementById('history-container'); const a = document.getElementById('history-arrow'); const t = document.getElementById('history-toggle-text'); if (c.classList.contains('max-h-0')) { c.classList.remove('max-h-0'); c.classList.add('max-h-[1000px]'); a.classList.add('rotate-180'); t.innerText = "隱藏近 5 期"; } else { c.classList.add('max-h-0'); c.classList.remove('max-h-[1000px]'); a.classList.remove('rotate-180'); t.innerText = "顯示近 5 期"; } },
-};
+    <!-- 個人檔案 Modal -->
+    <div id="profile-modal" class="fixed inset-0 modal-overlay z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all scale-95 opacity-0" id="profile-modal-content">
+            <div class="bg-stone-900 px-5 py-4 flex justify-between items-center">
+                <h3 class="text-white font-bold text-sm">👤 個人檔案 & AI</h3>
+                <button onclick="app.toggleProfileModal()" class="text-stone-400 hover:text-white">✕</button>
+            </div>
+            <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-100">
+                    <label class="text-[10px] font-bold text-yellow-700 mb-1 block">API Key</label>
+                    <div class="flex gap-2">
+                        <input type="password" id="gemini-api-key" placeholder="貼上 Key" class="custom-input w-full rounded px-2 py-1 text-xs font-mono">
+                        <button onclick="app.saveApiKey()" class="bg-yellow-600 text-white px-3 rounded text-xs font-bold hover:bg-yellow-700">存</button>
+                    </div>
+                </div>
+                <div id="auth-section" class="bg-stone-50 p-3 rounded-lg border border-stone-100 text-center">
+                    <button onclick="app.loginGoogle()" id="btn-login" class="w-full bg-white border border-stone-200 py-1.5 rounded text-xs font-bold">Google 登入</button>
+                    <div id="user-info" class="hidden"><p class="text-xs font-bold mb-1" id="user-name">User</p><button onclick="app.logoutGoogle()" class="text-[10px] text-red-400 underline">登出</button></div>
+                </div>
+                <div id="profile-list" class="space-y-2"></div>
+                <div class="border-t border-stone-100 pt-3 space-y-2">
+                    <div class="flex gap-2"><input type="text" id="new-name" placeholder="暱稱" class="custom-input w-1/3 rounded px-2 py-1.5 text-xs"><input type="text" id="new-realname" placeholder="姓名" class="custom-input w-2/3 rounded px-2 py-1.5 text-xs"></div>
+                    <textarea id="new-ziwei" rows="2" class="custom-input w-full rounded px-2 py-1.5 text-xs" placeholder="紫微斗數...\"></textarea>
+                    <textarea id="new-astro" rows="2" class="custom-input w-full rounded px-2 py-1.5 text-xs" placeholder="星盤...\"></textarea>
+                    <button onclick="app.addProfile()" class="w-full bg-stone-800 text-white py-2 rounded font-bold text-xs">新增</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-window.app = App;
-window.onload = () => App.init();
+    <!-- 模組化引入 -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>
