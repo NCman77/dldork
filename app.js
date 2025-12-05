@@ -380,7 +380,6 @@ console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個
         container.classList.remove('hidden'); // 預設顯示
 
         container.innerHTML = `
-            <span class="text-[10px] text-stone-400 font-bold mr-2">顯示順序:</span>
             <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
         `;
@@ -526,6 +525,7 @@ console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
