@@ -239,8 +239,17 @@ const App = {
                 if(jsonData.last_updated) document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
             }
 
-            const zipPromises = CONFIG.ZIP_URLS.map(url => fetchAndParseZip(url));
-            const zipResults = await Promise.all(zipPromises);
+            const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
+    try {
+        return await fetchAndParseZip(url);
+    } catch (e) {
+        console.warn(`⚠️ ZIP 載入失敗: ${url}`, e);
+        return { games: {} }; // 返回空数据
+    }
+});
+const zipResults = await Promise.all(zipPromises);
+console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個檔案`);
+
 
             // 讀取 LocalStorage 與 Firestore
             const localCache = loadFromCache()?.data || {};
@@ -517,3 +526,4 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
