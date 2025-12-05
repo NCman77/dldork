@@ -381,15 +381,15 @@ console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個
 
         container.innerHTML = `
             <span class="text-[10px] text-stone-400 font-bold mr-2">顯示順序:</span>
-            <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
             <button onclick="app.setDrawOrder('size')" class="order-btn ${this.state.drawOrder === 'size' ? 'active' : ''}">大小順序</button>
+            <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
         `;
         // 確保 CSS 樣式存在 (這裡使用 Tailwind 類別模擬)
         if (!document.getElementById('order-btn-style')) {
              document.head.insertAdjacentHTML('beforeend', `
             <style id="order-btn-style">
                 .order-btn {
-                    padding: 2px 8px; font-size: 10px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms;
+                    padding: 2px 8px; font-size: 15px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms;
                 }
                 .order-btn.active {
                     background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -526,5 +526,6 @@ console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
