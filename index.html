@@ -194,15 +194,35 @@
             </div>
         </div>
 
-        <!-- 歷史紀錄 -->
-        <div class="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden mb-12">
-            <div class="bg-stone-50 px-5 py-3 border-b border-stone-200 flex justify-between items-center cursor-pointer hover:bg-stone-100 transition group" onclick="app.toggleHistory()">
-                <h4 class="font-bold text-stone-700 text-base flex items-center gap-2">📅 歷史開獎記錄</h4>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition" id="history-toggle-text">顯示近 5 期</span>
-                    <span id="history-arrow" class="text-stone-400 text-xs transition-transform transform rotate-0">▼</span>
-                </div>
+<!-- 歷史紀錄 -->
+<div class="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden mb-12">
+    <div class="bg-stone-50 px-5 py-3 border-b border-stone-200 flex justify-between items-center cursor-pointer hover:bg-stone-100 transition group" onclick="app.toggleHistory()">
+        <!-- 左側：標題 + 切換按鈕 -->
+        <div class="flex items-center gap-3">
+            <h4 class="font-bold text-stone-700 text-base flex items-center gap-2">📅 歷史開獎記錄</h4>
+            <!-- 新增：大小順序/開出順序切換按鈕 -->
+            <div class="flex items-center gap-1 bg-stone-100 rounded-full p-0.5" onclick="event.stopPropagation()">
+                <button 
+                    id="btn-order-size" 
+                    onclick="app.switchDrawOrder('size')" 
+                    class="px-3 py-1 text-xs rounded-full transition-all duration-200 text-stone-500 hover:text-stone-700">
+                    大小順序
+                </button>
+                <button 
+                    id="btn-order-appear" 
+                    onclick="app.switchDrawOrder('appear')" 
+                    class="px-3 py-1 text-xs rounded-full transition-all duration-200 bg-stone-700 text-white">
+                    開出順序
+                </button>
             </div>
+        </div>
+        <!-- 右側：展開/收合 -->
+        <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-stone-400 group-hover:text-stone-600 transition" id="history-toggle-text">顯示近 5 期</span>
+            <span id="history-arrow" class="text-stone-400 text-xs transition-transform transform rotate-0">▼</span>
+        </div>
+    </div>
+
             <div id="history-container" class="max-h-0 overflow-hidden transition-all duration-500 ease-in-out">
                 <div class="overflow-x-auto p-1">
                     <table class="w-full text-left">
