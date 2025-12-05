@@ -227,6 +227,8 @@ export async function fetchLiveLotteryData() {
                 liveData[gameName].push({
                     date: dateStr,
                     period: String(item.period),
+                    // 核心修改：確保 numbers 預設為 drawNumberAppear (開出順序)
+                    // 如果沒有开出顺序，才用大小顺序
                     numbers: numsAppear.length > 0 ? numsAppear : numsSize,
                     numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
                     source: 'live_api'
@@ -562,9 +564,3 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
-
-
-
-
-
-
