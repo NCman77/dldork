@@ -36,12 +36,12 @@ const gameNameMap = {
     if (year < 1911) year += 1911;
     const dateStr = `${year}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
 
-    // 解析號碼 (假設 CSV 後面欄位是開出順序，如果 ZIP 格式不同需調整)
-    // 這裡我們盡量抓取所有數字欄位
-    const numbers = [];
-    for (let i = 5; i < cols.length; i++) {
-        if (/^\d+$/.test(cols[i])) numbers.push(parseInt(cols[i]));
-    }
+// 解析號碼 (從第 6 欄開始，跳過銷售金額)
+const numbers = [];
+for (let i = 6; i < cols.length; i++) {  // ← 改成 6
+    if (/^\d+$/.test(cols[i])) numbers.push(parseInt(cols[i]));
+}
+
     if (numbers.length < 2) return null;
 
     // 因為歷史 CSV 通常只提供一組號碼，我們暫時將其視為 "開出順序" (appear)
@@ -562,6 +562,7 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
 
 
