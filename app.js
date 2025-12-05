@@ -35,14 +35,14 @@ const CONFIG = {
 };
 
 const App = {
-    state: {
-        rawData: {}, rawJackpots: {}, 
-        currentGame: "", currentSubMode: null,
-        currentSchool: "balance",
-        filterPeriod: "", filterYear: "", filterMonth: "",
-        profiles: [], user: null, db: null, apiKey: "",
-        drawOrder: 'appear' // 'appear' (開出順序) 或 'size' (大小順序)
-    },
+state: {
+    rawData: {}, rawJackpots: {}, 
+    currentGame: "", currentSubMode: null,
+    currentSchool: "balance",
+    filterPeriod: "", filterYear: "", filterMonth: "",
+    profiles: [], user: null, db: null, apiKey: "",
+    drawOrder: 'size' // 改成 'size' (大小順序) - 預設值
+},
 
     init() {
         this.initFirebase();
@@ -526,4 +526,5 @@ console.log(`📦 [System] ZIP 檔案處理完成，共 ${zipResults.length} 個
 
 window.app = App;
 window.onload = () => App.init();
+
 
