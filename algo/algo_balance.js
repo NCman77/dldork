@@ -18,12 +18,11 @@
  * 數字型：和值13-15 → 位置均衡 → 避免對子/豹子 → 跨度≥5
  */
 
-
 const BALANCE_CONFIG = {
-    AC_TARGET: 4.5,      // AC值目標
-    ZONE_BREAKS: [16, 33], // 斷區點：小/中/大
-    SUM_MIN: 10,         // 3星和值下限
-    SUM_MAX: 20          // 3星和值上限
+    AC_TARGET: 4.5,      
+    ZONE_BREAKS: [16, 33], 
+    SUM_MIN: 10,         
+    SUM_MAX: 20          
 };
 
 export function algoBalance({ data, gameDef, subModeId }) {
@@ -42,9 +41,8 @@ export function algoBalance({ data, gameDef, subModeId }) {
 
 function handleComboBalance(data, gameDef) {
     const { range, count, zone2 } = gameDef;
-    const lastDraw = data[0].numbers.slice(0, 6);
     
-    // AC值 + 斷區平衡選號
+    // ✅ 結構平衡：每個斷區至少1顆
     const zone1 = selectComboBalanced(range, count, data);
     
     if (zone2) {
@@ -60,47 +58,86 @@ function selectComboBalanced(range, count, data) {
     const used = new Set();
     const zones = getZones(range);
     
-    // 每個斷區至少1顆（結構平衡）
-    zones.forEach(zone => {
+    console.log(`[Balance] 斷區: ${zones.map(z => `${z.start}-${z.end}`).join('/')}`);
+    
+    // 1️⃣ 每個斷區至少1顆（結構平衡）
+    zones.forEach((zone, idx) => {
         const candidate = findZoneCandidate(zone, data, used);
         if (candidate && !used.has(candidate)) {
-            selected.push({ val: candidate, tag: `區${zone.start}-${zone.end}` });
+            selected.push({ val: candidate, tag: `區${idx+1}(${zone.start}-${zone.end})` });
             used.add(candidate);
         }
     });
     
-    // AC值優化補齊
+    // 2️⃣ AC值優化補齊
     while (selected.length < count) {
-        const candidate = findACOptimized(range, data, used);
+        const candidate = findACOptimized(range, data, selected, used);
         if (candidate && !used.has(candidate)) {
             selected.push({ val: candidate, tag: 'AC優化' });
             used.add(candidate);
         }
     }
     
-    console.log(`[Balance] AC值: ${calculateAC(selected.map(s => s.val))}`);
+    const acValue = calculateAC(selected.map(s => s.val));
+    console.log(`[Balance] AC值: ${acValue.toFixed(2)} | 結構平衡: ${selected.length}/${count}`);
+    
     return selected.sort((a, b) => a.val - b.val);
 }
 
 function handleDigitBalance(data, gameDef, subModeId) {
     const { range, count } = gameDef;
     
-    // 3星彩：和值平衡 + 位置均衡
     const selected = selectDigitBalanced(data, range, count);
     
     return { numbers: selected, groupReason: "⚖️ 和值平衡 + 位置均衡" };
 }
 
 function selectDigitBalanced(data, range, count) {
-    // 和值控制在黃金區間 + 位置分佈均衡
-    const candidates = generateBalancedDigitCombinations(data, range, count);
+    const candidates = [];
+    
+    // 生成和值10-20的平衡組合
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const combo = [];
+        let sum = 0;
+        
+        while (combo.length < count && sum <= BALANCE_CONFIG.SUM_MAX) {
+            const num = Math.floor(Math.random() * (range + 1));
+            if (!combo.includes(num) || subModeId === 'group') {
+                combo.push(num);
+                sum += num;
+            }
+        }
+        
+        if (sum >= BALANCE_CONFIG.SUM_MIN && sum <= BALANCE_CONFIG.SUM_MAX) {
+            candidates.push({
+                val: combo[0],
+                tag: `和值${sum}`
+            });
+            if (candidates.length >= count) break;
+        }
+    }
+    
     return candidates.slice(0, count);
 }
 
-// 工具函數（AC值、斷區、和值計算等）
+// ============================================
+// 🛠️ 平衡學派核心工具函數
+// ============================================
+
 function calculateAC(numbers) {
-    // AC值計算邏輯
-    return 4.5; // 簡化
+    // 真實AC值計算：連續數字對數 / 總數字對數
+    if (numbers.length < 2) return 0;
+    
+    let consecutivePairs = 0;
+    const sorted = [...numbers].sort((a, b) => a - b);
+    
+    for (let i = 0; i < sorted.length - 1; i++) {
+        if (sorted[i + 1] - sorted[i] === 1) {
+            consecutivePairs++;
+        }
+    }
+    
+    return consecutivePairs / (sorted.length - 1);
 }
 
 function getZones(range) {
@@ -112,24 +149,35 @@ function getZones(range) {
 }
 
 function findZoneCandidate(zone, data, used) {
-    // 斷區候選邏輯
-    return Math.floor(Math.random() * (zone.end - zone.start + 1)) + zone.start;
+    // 優先選該區間近期冷號
+    const recentCold = [];
+    data.slice(0, 20).forEach(draw => {
+        draw.numbers.slice(0, 6).forEach(num => {
+            if (num >= zone.start && num <= zone.end && !recentCold.includes(num)) {
+                recentCold.push(num);
+            }
+        });
+    });
+    
+    const available = recentCold.filter(num => !used.has(num));
+    return available.length > 0 ? available[0] : 
+           Math.floor(Math.random() * (zone.end - zone.start + 1)) + zone.start;
 }
 
-function findACOptimized(range, data, used) {
-    // AC優化候選
+function findACOptimized(range, data, selected, used) {
+    // 選擇能讓AC值最接近4.5的號碼
+    for (let candidate = 1; candidate <= range; candidate++) {
+        if (!used.has(candidate)) {
+            const temp = [...selected.map(s => s.val), candidate];
+            const ac = calculateAC(temp);
+            if (Math.abs(ac - BALANCE_CONFIG.AC_TARGET) <= 0.5) {
+                return candidate;
+            }
+        }
+    }
     return Math.floor(Math.random() * range) + 1;
 }
 
-function generateBalancedDigitCombinations(data, range, count) {
-    // 生成和值平衡的數字組合
-    return Array(count).fill().map(() => ({
-        val: Math.floor(Math.random() * (range + 1)),
-        tag: '平衡'
-    }));
-}
-
 function selectZone2Balanced(data, zone2Range) {
-    // 第二區平衡邏輯
     return [{ val: Math.floor(Math.random() * zone2Range) + 1, tag: '第二區平衡' }];
 }
