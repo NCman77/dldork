@@ -106,9 +106,10 @@ function selectStatCombo(stats, count, range) {
     
     priorityList.forEach(num => {
         if (!used.has(num)) {
+            // ✅ 修正：用 stats 陣列正確判斷熱溫冷標籤
             selected.push({ 
                 val: num, 
-                tag: num <= 4 ? '熱' : num <= 6 ? '溫' : '冷' 
+                tag: stats.hot.includes(num) ? '熱' : stats.warm.includes(num) ? '溫' : '冷'
             });
             used.add(num);
         }
