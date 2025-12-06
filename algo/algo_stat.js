@@ -18,11 +18,10 @@
  * 數字型：2熱+1溫 → 連莊優先 → 避免全對子 → 熱度排序
  */
 
-
 const STAT_CONFIG = {
-    HOT_THRESHOLD: 8,    // 熱號標準（近20期）
-    WARM_THRESHOLD: 5,   // 溫號標準
-    COLD_MAX_MISS: 27,   // 極限遺漏期數
+    HOT_THRESHOLD: 8,    
+    WARM_THRESHOLD: 5,   
+    COLD_MAX_MISS: 27,   
     RECENT_PERIOD: 20
 };
 
@@ -43,7 +42,7 @@ export function algoStat({ data, gameDef, subModeId }) {
 function handleComboStat(data, gameDef) {
     const { range, count, zone2 } = gameDef;
     
-    // 熱溫冷分佈 + 遺漏回補
+    // ✅ 修正版熱溫冷統計
     const stats = calculateNumberStats(data, range);
     const zone1 = selectStatCombo(stats, count, range);
     
@@ -52,50 +51,66 @@ function handleComboStat(data, gameDef) {
         return { numbers: [...zone1, zone2Num], groupReason: "📊 熱溫冷分佈" };
     }
     
-    console.log(`[Stat] 熱:${stats.hot.length} 溫:${stats.warm.length} 冷:${stats.cold.length}`);
     return { numbers: zone1, groupReason: "📊 熱溫冷 + 遺漏回補" };
 }
 
 function handleDigitStat(data, gameDef, subModeId) {
     const { range, count } = gameDef;
     
-    // 數字型熱溫冷 + 連莊分析
     const stats = calculateDigitStats(data, range);
     const selected = selectStatDigit(stats, count);
     
     return { numbers: selected, groupReason: "📊 數字熱溫冷 + 連莊" };
 }
 
+// ============================================
+// ✅ 修正版：熱溫冷統計函數
+// ============================================
 function calculateNumberStats(data, range) {
-    const freq = new Map();
-    const missPeriods = new Map();
+    const freq = new Map();  // 清空重置
     
-    // 統計頻率與遺漏
+    // ✅ 限定20期統計頻率
     data.slice(0, STAT_CONFIG.RECENT_PERIOD).forEach(draw => {
         draw.numbers.slice(0, 6).forEach(num => {
-            freq.set(num, (freq.get(num) || 0) + 1);
+            if (num >= 1 && num <= range) {
+                freq.set(num, (freq.get(num) || 0) + 1);
+            }
         });
     });
     
-    return {
-        hot: Array.from(freq.entries()).filter(([_, f]) => f >= STAT_CONFIG.HOT_THRESHOLD).map(([n]) => n),
-        warm: Array.from(freq.entries()).filter(([_, f]) => f >= STAT_CONFIG.WARM_THRESHOLD && f < STAT_CONFIG.HOT_THRESHOLD).map(([n]) => n),
-        cold: Array.from(freq.entries()).filter(([_, f]) => f < STAT_CONFIG.WARM_THRESHOLD).map(([n]) => n)
-    };
+    // ✅ 正確分類
+    const hot = Array.from(freq.entries())
+        .filter(([_, f]) => f >= STAT_CONFIG.HOT_THRESHOLD).map(([n]) => n);
+    const warm = Array.from(freq.entries())
+        .filter(([_, f]) => f >= STAT_CONFIG.WARM_THRESHOLD && f < STAT_CONFIG.HOT_THRESHOLD).map(([n]) => n);
+    const cold = Array.from(freq.entries())
+        .filter(([_, f]) => f < STAT_CONFIG.WARM_THRESHOLD).map(([n]) => n);
+    
+    console.log(`[Stat] 熱:${hot.length}(${STAT_CONFIG.HOT_THRESHOLD}+) 溫:${warm.length}(${STAT_CONFIG.WARM_THRESHOLD}-${STAT_CONFIG.HOT_THRESHOLD-1}) 冷:${cold.length}`);
+    
+    return { hot, warm, cold };
 }
 
 function selectStatCombo(stats, count, range) {
     const selected = [];
     const used = new Set();
     
-    // 3熱 + 2溫 + 1冷
-    [...stats.hot.slice(0, 3), ...stats.warm.slice(0, 2), ...stats.cold.slice(0, 1)]
-        .forEach(num => {
-            if (!used.has(num)) {
-                selected.push({ val: num, tag: '熱/溫/冷' });
-                used.add(num);
-            }
-        });
+    // ✅ 3熱+2溫+1冷配比
+    const priorityList = [
+        ...stats.hot.slice(0, 3),
+        ...stats.warm.slice(0, 2), 
+        ...stats.cold.slice(0, 1)
+    ];
+    
+    priorityList.forEach(num => {
+        if (!used.has(num)) {
+            selected.push({ 
+                val: num, 
+                tag: num <= 4 ? '熱' : num <= 6 ? '溫' : '冷' 
+            });
+            used.add(num);
+        }
+    });
     
     // 遺漏回補
     while (selected.length < count) {
@@ -110,18 +125,55 @@ function selectStatCombo(stats, count, range) {
 }
 
 function calculateDigitStats(data, range) {
-    // 數字型統計邏輯
-    return { hot: [5,2,8], warm: [3,4,6], cold: [0,1,7,9] };
+    const freq = new Map();
+    data.slice(0, STAT_CONFIG.RECENT_PERIOD).forEach(draw => {
+        draw.numbers.slice(0, 3).forEach(num => {
+            if (num >= 0 && num <= range) {
+                freq.set(num, (freq.get(num) || 0) + 1);
+            }
+        });
+    });
+    
+    const hot = Array.from(freq.entries()).filter(([_, f]) => f >= 8).map(([n]) => n);
+    const warm = Array.from(freq.entries()).filter(([_, f]) => f >= 5 && f < 8).map(([n]) => n);
+    
+    return { hot, warm, cold: Array.from({length: range+1}, (_, i) => i).filter(i => !hot.includes(i) && !warm.includes(i)) };
 }
 
 function selectStatDigit(stats, count) {
-    // 數字型選號邏輯
-    return Array(count).fill().map(() => ({
-        val: stats.hot[Math.floor(Math.random() * stats.hot.length)],
-        tag: '熱號'
-    }));
+    const selected = [];
+    const used = new Set();
+    
+    // 2熱+1溫
+    [...stats.hot.slice(0, 2), ...stats.warm.slice(0, 1)].forEach(num => {
+        if (!used.has(num)) {
+            selected.push({ val: num, tag: '熱/溫' });
+            used.add(num);
+        }
+    });
+    
+    while (selected.length < count) {
+        const num = stats.hot[Math.floor(Math.random() * stats.hot.length)] || 0;
+        if (!used.has(num)) {
+            selected.push({ val: num, tag: '熱補' });
+            used.add(num);
+        }
+    }
+    
+    return selected;
 }
 
 function selectZone2Stat(data, zone2Range) {
-    return [{ val: Math.floor(Math.random() * zone2Range) + 1, tag: '第二區熱號' }];
+    const zone2Freq = new Map();
+    data.slice(0, 10).forEach(draw => {
+        const zone2Num = draw.numbers[6];
+        if (zone2Num >= 1 && zone2Num <= zone2Range) {
+            zone2Freq.set(zone2Num, (zone2Freq.get(zone2Num) || 0) + 1);
+        }
+    });
+    
+    const hottest = Array.from(zone2Freq.entries())
+        .sort((a, b) => b[1] - a[1])[0]?.[0] || Math.floor(Math.random() * zone2Range) + 1;
+    
+    return [{ val: hottest, tag: '第二區熱號' }];
 }
