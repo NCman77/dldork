@@ -47,6 +47,7 @@ function handleComboStat(data, gameDef) {
     const zone1 = selectStatCombo(stats, count, range);
     
     if (zone2) {
+        // ✅ 修正：zone2 返回單個對象，不是陣列
         const zone2Num = selectZone2Stat(data, zone2);
         return { numbers: [...zone1, zone2Num], groupReason: "📊 熱溫冷分佈" };
     }
@@ -58,6 +59,7 @@ function handleDigitStat(data, gameDef, subModeId) {
     const { range, count } = gameDef;
     
     const stats = calculateDigitStats(data, range);
+    // ✅ 修正：selectStatDigit 加入無限迴圈防護
     const selected = selectStatDigit(stats, count);
     
     return { numbers: selected, groupReason: "📊 數字熱溫冷 + 連莊" };
@@ -127,11 +129,13 @@ function selectStatCombo(stats, count, range) {
 function calculateDigitStats(data, range) {
     const freq = new Map();
     data.slice(0, STAT_CONFIG.RECENT_PERIOD).forEach(draw => {
-        draw.numbers.slice(0, 3).forEach(num => {
-            if (num >= 0 && num <= range) {
-                freq.set(num, (freq.get(num) || 0) + 1);
-            }
-        });
+        if (draw.numbers && draw.numbers.length >= 3) {
+            draw.numbers.slice(0, 3).forEach(num => {
+                if (num >= 0 && num <= range) {
+                    freq.set(num, (freq.get(num) || 0) + 1);
+                }
+            });
+        }
     });
     
     const hot = Array.from(freq.entries()).filter(([_, f]) => f >= 8).map(([n]) => n);
@@ -140,40 +144,81 @@ function calculateDigitStats(data, range) {
     return { hot, warm, cold: Array.from({length: range+1}, (_, i) => i).filter(i => !hot.includes(i) && !warm.includes(i)) };
 }
 
+// ✅ 修正：加入 maxAttempts 防無限迴圈
 function selectStatDigit(stats, count) {
     const selected = [];
     const used = new Set();
     
-    // 2熱+1溫
-    [...stats.hot.slice(0, 2), ...stats.warm.slice(0, 1)].forEach(num => {
-        if (!used.has(num)) {
-            selected.push({ val: num, tag: '熱/溫' });
-            used.add(num);
-        }
-    });
+    const hot = stats.hot || [];
+    const warm = stats.warm || [];
+    const cold = stats.cold || [];
     
-    while (selected.length < count) {
-        const num = stats.hot[Math.floor(Math.random() * stats.hot.length)] || 0;
+    // 2熱+1溫
+    for (let i = 0; i < Math.min(2, hot.length); i++) {
+        const num = hot[i];
         if (!used.has(num)) {
-            selected.push({ val: num, tag: '熱補' });
+            selected.push({ val: num, tag: '熱號' });
             used.add(num);
         }
     }
     
-    return selected;
+    if (warm.length > 0) {
+        const num = warm[0];
+        if (!used.has(num)) {
+            selected.push({ val: num, tag: '溫號' });
+            used.add(num);
+        }
+    }
+    
+    // ✅ 備用清單 + maxAttempts 防無限迴圈
+    const backup = [...hot, ...warm, ...cold].filter(n => !used.has(n));
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    while (selected.length < count && backup.length > 0 && attempts < maxAttempts) {
+        const idx = Math.floor(Math.random() * backup.length);
+        const num = backup[idx];
+        
+        if (!used.has(num)) {
+            selected.push({ val: num, tag: '冷號' });
+            used.add(num);
+            backup.splice(idx, 1);
+        }
+        attempts++;
+    }
+    
+    // 最後備用
+    while (selected.length < count) {
+        const num = Math.floor(Math.random() * 10);
+        if (!used.has(num)) {
+            selected.push({ val: num, tag: '隨機' });
+            used.add(num);
+        }
+    }
+    
+    return selected.slice(0, count);
 }
 
+// ✅ 修正：selectZone2Stat 返回單個對象，不是陣列
 function selectZone2Stat(data, zone2Range) {
+    if (!zone2Range || zone2Range < 1) {
+        return { val: 1, tag: '第二區統計' };
+    }
+    
     const zone2Freq = new Map();
     data.slice(0, 10).forEach(draw => {
         const zone2Num = draw.numbers[6];
-        if (zone2Num >= 1 && zone2Num <= zone2Range) {
+        if (zone2Num && zone2Num >= 1 && zone2Num <= zone2Range) {
             zone2Freq.set(zone2Num, (zone2Freq.get(zone2Num) || 0) + 1);
         }
     });
     
-    const hottest = Array.from(zone2Freq.entries())
-        .sort((a, b) => b[1] - a[1])[0]?.[0] || Math.floor(Math.random() * zone2Range) + 1;
+    const hottest = zone2Freq.size > 0
+        ? Array.from(zone2Freq.entries()).sort((a, b) => b[1] - a[1])[0][0]
+        : Math.floor(Math.random() * zone2Range) + 1;
     
-    return [{ val: hottest, tag: '第二區熱號' }];
+    return {
+        val: hottest,
+        tag: '第二區熱號'
+    };
 }
