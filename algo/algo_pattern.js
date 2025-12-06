@@ -75,6 +75,118 @@ const LOTTO_DRAG_MAP = {
 };
 
 // ============================================
+// ★ 新增：三星彩專家選號邏輯（和值 + 連莊 + 冷熱配比）
+// ============================================
+
+function select3DExpertPattern(data, range, count, subModeId) {
+    // 僅在 3 碼數字型啟用（避免誤用到 4星彩）
+    if (count !== 3) {
+        return null;
+    }
+    
+    const candidates = [];
+    
+    // 統計範圍：近 20 期
+    const recent = data.slice(0, Math.min(20, data.length));
+    if (recent.length === 0) {
+        return null;
+    }
+    
+    // 1. 和值黃金區設定（參考統計：10–20 覆蓋約 70% 左右）
+    const sumMin = 10;
+    const sumMax = 20;
+    
+    // 2. 連莊號（最近 3 期重複出現的數字）
+    const repeatMap = new Map();
+    recent.slice(0, Math.min(3, recent.length)).forEach(draw => {
+        draw.numbers.slice(0, 3).forEach(d => {
+            if (d >= 0 && d <= range) {
+                repeatMap.set(d, (repeatMap.get(d) || 0) + 1);
+            }
+        });
+    });
+    const repeats = Array.from(repeatMap.entries())
+        .filter(([_, c]) => c >= 2)
+        .map(([d]) => d);
+    
+    // 3. 冷熱統計（近 20 期整體頻率）
+    const freqMap = new Map();
+    recent.forEach(draw => {
+        draw.numbers.slice(0, 3).forEach(d => {
+            if (d >= 0 && d <= range) {
+                freqMap.set(d, (freqMap.get(d) || 0) + 1);
+            }
+        });
+    });
+    const sorted = Array.from(freqMap.entries()).sort((a, b) => b[1] - a[1]);
+    const hotNums = sorted.slice(0, 4).map(([d]) => d);   // 熱號池
+    const warmNums = sorted.slice(4, 10).map(([d]) => d); // 溫號池
+    
+    // 4. 隨機生成符合條件的組合
+    const maxAttempt = 200;
+    while (candidates.length < 10 && candidates.length < maxAttempt) {
+        let combo = [];
+        
+        // 4-1 連莊號：有機率塞入 1 顆
+        if (repeats.length > 0 && Math.random() < 0.4) {
+            const r = repeats[Math.floor(Math.random() * repeats.length)];
+            combo.push(r);
+        }
+        
+        // 4-2 冷熱配比：1 熱 + 2 溫（避免全對子）
+        while (combo.length < 3) {
+            const pool = (combo.length === 0 ? hotNums : warmNums);
+            if (pool.length === 0) break;
+            const pick = pool[Math.floor(Math.random() * pool.length)];
+            combo.push(pick);
+        }
+        
+        if (combo.length !== 3) continue;
+        
+        // 排序後做去重判斷
+        combo = combo.map(x => parseInt(x, 10));
+        const sum = combo.reduce((a, b) => a + b, 0);
+        
+        // 4-3 和值校正：必須落在黃金區
+        if (sum < sumMin || sum > sumMax) {
+            continue;
+        }
+        
+        // 4-4 避免 3 顆完全一樣（豹子）或 2+1 對子的比例過高
+        const uniqueCount = new Set(combo).size;
+        if (uniqueCount < 2) {
+            continue;
+        }
+        
+        const key = combo.slice().sort((a, b) => a - b).join(',');
+        if (!candidates.find(c => c.key === key)) {
+            candidates.push({
+                key,
+                arr: combo
+            });
+        }
+        
+        if (candidates.length >= count) {
+            break;
+        }
+    }
+    
+    if (candidates.length === 0) {
+        return null;
+    }
+    
+    console.log(`[Pattern] 三星彩專家模式啟動 | 連莊號: ${repeats.join(',')} | 熱號池: ${hotNums.join(',')}`);
+    
+    // 轉成與原本數字型結構相同的物件陣列
+    const result = candidates.slice(0, count).map((c, idx) => ({
+        val: c.arr[0], // 取第一顆作為代表（保持與原結構一致）
+        tag: '三星彩專家'
+    }));
+    
+    return result;
+}
+
+// ============================================
 // 主函數（入口）
 // ============================================
 
@@ -114,14 +226,16 @@ function handleComboTypePattern(data, gameDef) {
     
     console.log(`[Pattern] 上期開獎: ${lastDraw.join(', ')}`);
     
-    // 第一區選號
+    // 第一區選號 ★ 修改：擴充大樂透識別條件，避免 id 僅等於 'lotto' 或 '大樂透' 時拖牌失效
     let zone1Numbers;
     
-    if (id === 'lotto649' && LOTTO_DRAG_MAP) {
-        // 大樂透：使用完整拖牌分析
+    if ((id === 'lotto649' || id === 'lotto' || id === '大樂透' || range === 49) && LOTTO_DRAG_MAP) {
+        // 大樂透：使用完整拖牌分析（348期條件機率矩陣）
+        console.log(`[Pattern] ✅ 使用拖牌分析 | id=${id} | range=${range}`);
         zone1Numbers = selectWithDragAnalysis(lastDraw, range, count);
     } else {
         // 其他玩法：使用鄰號+尾數分析
+        console.log(`[Pattern] ℹ️ 使用鄰號+尾數分析 | id=${id} | range=${range}`);
         zone1Numbers = selectWithNeighborAnalysis(data, lastDraw, range, count);
     }
     
@@ -388,21 +502,33 @@ function selectSecondZonePattern(data, zone2Range) {
 }
 
 // ============================================
-// 數字型彩券關聯處理
+// 數字型彩券關聯處理 ★ 修改：新增三星彩專家模式優先判斷
 // ============================================
 
 function handleDigitTypePattern(data, gameDef, subModeId) {
-    const { range, count } = gameDef;
+    const { range, count, id } = gameDef; // ★ 新增：讀取 id 方便判斷 3星彩
     
-    console.log(`[Pattern] 數字型關聯分析 | 範圍: 0-${range} | 數量: ${count}`);
+    console.log(`[Pattern] 數字型關聯分析 | 範圍: 0-${range} | 數量: ${count} | id: ${id}`);
     
     // 取最近一期
     const lastDraw = data[0].numbers.slice(0, count);
     
     console.log(`[Pattern] 上期開獎: ${lastDraw.join('-')}`);
     
-    // 位置關聯分析
-    const selected = selectDigitsByPosition(data, range, count, subModeId);
+    // ★ 新增：三星彩專家模式優先（只限定在 3 碼玩法）
+    let selected = null;
+    if (count === 3 && (id === '3d' || id === '3star' || id === '三星彩')) {
+        selected = select3DExpertPattern(data, range, count, subModeId);
+        if (selected) {
+            return {
+                numbers: selected,
+                groupReason: `🔗 三星彩專家模式：和值10-20 + 連莊 + 冷熱配比`
+            };
+        }
+    }
+    
+    // 原有：位置關聯分析（4星彩 / 其他數字型或專家模式回傳 null 時使用）
+    selected = selectDigitsByPosition(data, range, count, subModeId);
     
     return {
         numbers: selected,
