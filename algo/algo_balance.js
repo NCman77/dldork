@@ -46,6 +46,7 @@ function handleComboBalance(data, gameDef) {
     const zone1 = selectComboBalanced(range, count, data);
     
     if (zone2) {
+        // ✅ 修正：zone2 返回單個對象，不是陣列
         const zone2Num = selectZone2Balanced(data, zone2);
         return { numbers: [...zone1, zone2Num], groupReason: "⚖️ AC平衡 + 斷區均勻" };
     }
@@ -178,6 +179,30 @@ function findACOptimized(range, data, selected, used) {
     return Math.floor(Math.random() * range) + 1;
 }
 
+// ✅ 修正：selectZone2Balanced 返回單個對象，不是陣列
 function selectZone2Balanced(data, zone2Range) {
-    return [{ val: Math.floor(Math.random() * zone2Range) + 1, tag: '第二區平衡' }];
+    if (!zone2Range || zone2Range < 1) {
+        return { val: 1, tag: '第二區平衡' };
+    }
+    
+    // 優先冷號
+    const freq = new Map();
+    data.slice(0, 10).forEach(draw => {
+        const z2 = draw.numbers[6];
+        if (z2 >= 1 && z2 <= zone2Range) {
+            freq.set(z2, (freq.get(z2) || 0) + 1);
+        }
+    });
+    
+    const cold = Array.from({length: zone2Range}, (_, i) => i + 1)
+        .filter(n => !freq.has(n) || freq.get(n) === 0);
+    
+    const selected = cold.length > 0 
+        ? cold[0] 
+        : Math.floor(Math.random() * zone2Range) + 1;
+    
+    return {
+        val: selected,
+        tag: '第二區冷號'
+    };
 }
