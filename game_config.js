@@ -1,7 +1,7 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * V27.4：依照使用者需求，統一字體樣式並精確修正獎金與中獎條件描述
+ * V27.3：極致優化規則說明 (Article)，嚴格執行三欄位精美表格排版
  */
 
 export const GAME_CONFIG = {
@@ -12,7 +12,7 @@ export const GAME_CONFIG = {
             range: 49,
             count: 6,
             special: true,
-            drawDays: [2, 5],
+            drawDays: [2, 5], // 週二、週五
             sourceKey: 'Lotto649',
             desc: "每週二、五開獎。49 選 6，財富自由的入場券。",
             subModes: null,
@@ -21,7 +21,11 @@ export const GAME_CONFIG = {
                     <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
                         <span class="text-yellow-500">🌕</span> 大樂透獎金結構
                     </h5>
-                    
+                    <p class="text-xs text-stone-500 bg-stone-50 p-2 rounded border border-stone-200">
+                        基本玩法：01~49 選 6 號。對中 3 碼即中獎。<br>
+                        <span class="text-rose-500">●</span> 代表特別號。
+                    </p>
+
                     <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
                         <!-- 表頭 -->
                         <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
