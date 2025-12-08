@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.1：UI 智慧適配 (無子玩法時自動顯示頭獎與開獎日資訊)
+ * V27.2：強制顯示頭獎與開獎日資訊卡 (UI Visibility Fix)
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -384,6 +384,9 @@ const App = {
                 const jsonData = await jsonRes.json();
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
+                // Force update UI after getting jackpots
+                if (this.state.currentGame) this.updateDashboard();
+                
                 if (jsonData.last_updated) {
                     document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
                 }
@@ -497,7 +500,7 @@ const App = {
         document.getElementById('total-count').innerText = data.length;
         document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // V27.1: 移除底部的舊 Jackpot 顯示，改用中間區塊
+        // V27.2: 確保底部舊的 Jackpot 區塊隱藏 (因為我們移到了中間)
         document.getElementById('jackpot-container').classList.add('hidden');
 
         this.renderSubModeUI(gameDef);
@@ -529,14 +532,14 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.1 核心修改：智慧顯示中間欄位
+    // ✨ V27.2 核心修改：強制顯示中欄資訊
     renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
         rulesContent.classList.add('hidden');
         
-        area.classList.remove('hidden'); // 永遠顯示 Container
+        area.classList.remove('hidden'); // 強制顯示容器
         container.innerHTML = '';
 
         if (gameDef.subModes) {
@@ -558,21 +561,27 @@ const App = {
             // B. 無子玩法 (樂透/威力)：顯示頭獎與開獎日
             this.state.currentSubMode = null;
             
-            // 1. 計算下期開獎日
-            const nextDrawInfo = this.calculateNextDraw(gameDef.drawDays);
+            // 1. 計算下期開獎日 (若無設定則顯示 --)
+            const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
+            
+            // 2. 獲取累積獎金 (若無資料則顯示 --)
+            // 重點修正：使用 || "--" 確保即使沒資料也會顯示卡片
+            const jackpotVal = this.state.rawJackpots[gameDef.sourceKey] || "--";
+            
+            // 渲染：日期卡片 (藍灰色)
             const dateBadge = document.createElement('div');
             dateBadge.className = 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold border border-slate-200 flex items-center gap-1';
             dateBadge.innerHTML = `<span>📅</span> 下期: ${nextDrawInfo}`;
             container.appendChild(dateBadge);
 
-            // 2. 獲取並顯示累積獎金
-            const jackpotAmount = this.state.rawJackpots[gameDef.sourceKey];
-            if (jackpotAmount) {
-                const moneyBadge = document.createElement('div');
-                moneyBadge.className = 'px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-black border border-amber-200 flex items-center gap-1';
-                moneyBadge.innerHTML = `<span>💰</span> $${jackpotAmount}`;
-                container.appendChild(moneyBadge);
-            }
+            // 渲染：獎金卡片 (金黃色)
+            const moneyBadge = document.createElement('div');
+            moneyBadge.className = 'px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-black border border-amber-200 flex items-center gap-1';
+            moneyBadge.innerHTML = `<span>💰</span> $${jackpotVal}`;
+            container.appendChild(moneyBadge);
+            
+            // 規則說明內容
+            rulesContent.innerHTML = gameDef.article || gameDef.desc || "暫無說明";
         }
     },
 
@@ -582,17 +591,13 @@ const App = {
         const today = new Date();
         const currentDay = today.getDay(); // 0(週日) - 6(週六)
         
-        // 尋找最近的開獎日
         let daysUntil = 100;
-        let nextDay = -1;
-
+        
         drawDays.forEach(day => {
             let diff = day - currentDay;
-            if (diff <= 0) diff += 7; // 如果是今天或已過，則算下週
-            // 如果是今天且時間還早(例如晚上8點前)，可能算今天？這裡簡化為只算明天以後
+            if (diff <= 0) diff += 7; // 若是今天或已過，則算下週
             if (diff < daysUntil) {
                 daysUntil = diff;
-                nextDay = day;
             }
         });
 
@@ -601,7 +606,7 @@ const App = {
         const m = nextDate.getMonth() + 1;
         const d = nextDate.getDate();
         const weekMap = ["日", "一", "二", "三", "四", "五", "六"];
-        return `${m}/${d} (${weekMap[nextDay]})`;
+        return `${m}/${d} (${weekMap[nextDate.getDay()]})`;
     },
 
     toggleRules() {
