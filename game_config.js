@@ -1,252 +1,41 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * V27.3：極致優化規則說明 (Article)，嚴格執行三欄位精美表格排版
+ * V27.0：更新關聯學派說明，匹配 V4.2 多策略引擎特性
  */
 
 export const GAME_CONFIG = {
     // 遊戲定義
     GAMES: {
         '大樂透': {
-            type: 'lotto',
+            type: 'lotto', // 標準樂透型
             range: 49,
             count: 6,
-            special: true,
-            drawDays: [2, 5], // 週二、週五
-            sourceKey: 'Lotto649',
-            desc: "每週二、五開獎。49 選 6，財富自由的入場券。",
-            subModes: null,
-            article: `
-                <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
-                    <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-yellow-500">🌕</span> 大樂透獎金結構
-                    </h5>
-                    <p class="text-xs text-stone-500 bg-stone-50 p-2 rounded border border-stone-200">
-                        基本玩法：01~49 選 6 號。對中 3 碼即中獎。<br>
-                        <span class="text-rose-500">●</span> 代表特別號。
-                    </p>
-
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
-                        <!-- 表頭 -->
-                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2 text-center">獎項</div>
-                            <div class="col-span-8">中獎條件</div>
-                            <div class="col-span-2 text-right">獎金</div>
-                        </div>
-                        
-                        <!-- 列表內容 (字體統一為 text-xs text-stone-500) -->
-                        <div class="divide-y divide-stone-100 bg-white">
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
-                                <div class="col-span-8 text-stone-500">與當期六個獎號完全相同者</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任五碼＋特別號</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任五碼</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任四碼＋特別號</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">伍獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任四碼</div>
-                                <div class="col-span-2 text-right text-stone-500">$2,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">陸獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任三碼＋特別號</div>
-                                <div class="col-span-2 text-right text-stone-500">$1,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">柒獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任兩碼＋特別號</div>
-                                <div class="col-span-2 text-right text-stone-500">$400</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">普獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之任三碼</div>
-                                <div class="col-span-2 text-right text-stone-500">$400</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="text-xs text-stone-500 space-y-1 mt-2">
-                        <p>註1：頭獎中獎率約 1/1,398 萬，總中獎率約 1/32。</p>
-                        <p>註2：若伍獎至普獎中獎人數過多，伍獎至普獎獎金將改為均分，致使實際單注獎金低於獎金表所列之金額。</p>
-                    </div>
-                </div>
-            `
+            special: true, // 有特別號但邏輯上是從同一個池選
+            desc: "在01~49中選取6個號碼，每週二、五開獎。",
+            subModes: null
         },
         '威力彩': {
-            type: 'power',
-            range: 38,
+            type: 'power', // 雙區型 (最複雜)
+            range: 38,     // 第一區 1-38
             count: 6,
-            zone2: 8,
-            drawDays: [1, 4],
-            sourceKey: 'SuperLotto638',
-            desc: "每週一、四開獎。高額頭獎的首選，雙區制霸。",
-            subModes: null,
-            article: `
-                <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
-                    <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-rose-500">⚡</span> 威力彩獎金結構
-                    </h5>
-
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
-                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2 text-center">獎項</div>
-                            <div class="col-span-8">中獎條件</div>
-                            <div class="col-span-2 text-right">獎金</div>
-                        </div>
-                        
-                        <div class="divide-y divide-stone-100 bg-white">
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
-                                <div class="col-span-8 text-stone-500">第1區六個獎號全中，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
-                                <div class="col-span-8 text-stone-500">第1區六個獎號全中，但第2區未對中</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任五個獎號，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">$150,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任五個獎號，但第2區未對中</div>
-                                <div class="col-span-2 text-right text-stone-500">$20,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">伍獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任四個獎號，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">$4,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">陸獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任四個獎號，但第2區未對中</div>
-                                <div class="col-span-2 text-right text-stone-500">$800</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">柒獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任三個獎號，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">$400</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">捌獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任二個獎號，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">$200</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">玖獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任三個獎號，但第2區未對中</div>
-                                <div class="col-span-2 text-right text-stone-500">$100</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">普獎</div>
-                                <div class="col-span-8 text-stone-500">第1區對中任一個獎號，且第2區亦對中獎號</div>
-                                <div class="col-span-2 text-right text-stone-500">$100</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="text-xs text-stone-500 space-y-1 mt-2">
-                        <p>註1：頭獎中獎率約 1/2,209 萬，總中獎率約 1/9。</p>
-                        <p>註2：若參獎至普獎中獎人數過多，參獎至普獎獎金將改為均分，致使實際單注獎金低於獎金表所列之金額。</p>
-                    </div>
-                </div>
-            `
+            zone2: 8,      // 第二區 1-8
+            desc: "第一區01~38選6個，第二區01~08選1個。",
+            subModes: null
         },
         '今彩539': {
             type: 'lotto',
             range: 39,
             count: 5,
             special: false,
-            drawDays: [1, 2, 3, 4, 5, 6],
-            sourceKey: 'Daily539',
-            desc: "週一至週六開獎。小賭怡情，中獎機率高。",
-            subModes: null,
-            article: `
-                <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
-                    <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-emerald-500">☘️</span> 今彩 539 獎金結構
-                    </h5>
-
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
-                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2 text-center">獎項</div>
-                            <div class="col-span-8">中獎條件</div>
-                            <div class="col-span-2 text-right">獎金</div>
-                        </div>
-                        
-                        <div class="divide-y divide-stone-100 bg-white">
-                            <div class="grid grid-cols-12 py-3 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
-                                <div class="col-span-8 text-stone-500">與當期五個中獎號碼完全相同者</div>
-                                <div class="col-span-2 text-right text-stone-500">均分</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-3 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任四碼</div>
-                                <div class="col-span-2 text-right text-stone-500">$20,000</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-3 px-3 items-center">
-                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任三碼</div>
-                                <div class="col-span-2 text-right text-stone-500">$300</div>
-                            </div>
-
-                            <div class="grid grid-cols-12 py-3 px-3 items-center bg-stone-50/50">
-                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
-                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任二碼</div>
-                                <div class="col-span-2 text-right text-stone-500">$50</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="text-xs text-stone-500 space-y-1 mt-2">
-                        <p>註：頭獎中獎率約 1/58 萬，總中獎率約 1/9。</p>
-                    </div>
-                </div>
-            `
+            desc: "01~39選5個，每週一至六開獎。",
+            subModes: null
         },
         '3星彩': {
-            type: 'digit',
-            range: 9,
+            type: 'digit', // 數字型
+            range: 9,      // 0-9
             count: 3,
-            drawDays: [1, 2, 3, 4, 5, 6],
-            sourceKey: '3D',
-            desc: "週一至週六開獎。正彩、組彩、對彩，玩法多變。",
+            desc: "從000~999中選號，分為正彩、組彩、對彩。",
             subModes: [
                 { id: 'direct', name: '🔴 正彩', count: 3, rule: '需數字與位置完全對中' },
                 { id: 'group', name: '🔵 組彩', count: 3, rule: '數字對中即可，不限位置' },
@@ -255,32 +44,25 @@ export const GAME_CONFIG = {
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg">三星彩玩法規則</h5>
-                    <div class="grid grid-cols-1 gap-3">
-                        <div class="p-3 bg-white rounded-xl border border-stone-200 shadow-sm relative overflow-hidden group">
-                            <div class="absolute right-0 top-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8 transition group-hover:scale-110"></div>
-                            <strong class="block mb-1 text-red-600 relative z-10">🔴 正彩 (Direct)</strong>
-                            <p class="text-xs text-stone-500 relative z-10">數字與位置需完全相同。<br>機率 1/1000。獎金 $500。</p>
-                        </div>
-                        <div class="p-3 bg-white rounded-xl border border-stone-200 shadow-sm relative overflow-hidden group">
-                            <div class="absolute right-0 top-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8 transition group-hover:scale-110"></div>
-                            <strong class="block mb-1 text-blue-600 relative z-10">🔵 組彩 (Group)</strong>
-                            <p class="text-xs text-stone-500 relative z-10">三個數字相同即可，不限順序。<br>3組彩 $40 / 6組彩 $20。</p>
-                        </div>
-                        <div class="p-3 bg-white rounded-xl border border-stone-200 shadow-sm relative overflow-hidden group">
-                            <div class="absolute right-0 top-0 w-16 h-16 bg-green-50 rounded-bl-full -mr-8 -mt-8 transition group-hover:scale-110"></div>
-                            <strong class="block mb-1 text-green-600 relative z-10">🟢 對彩 (Pair)</strong>
-                            <p class="text-xs text-stone-500 relative z-10">對中前兩碼或後兩碼。<br>機率 1/100。獎金 $30。</p>
-                        </div>
+                    <div class="p-3 bg-white rounded border border-stone-200">
+                        <strong class="block mb-1">1. 正彩 (Direct)</strong>
+                        <p>數字與位置需完全相同。機率 1/1000。適合追求高賠率的玩家。</p>
+                    </div>
+                    <div class="p-3 bg-white rounded border border-stone-200">
+                        <strong class="block mb-1">2. 組彩 (Group)</strong>
+                        <p>三個數字相同即可，不限順序。例如開獎 123，買 321 也中獎。</p>
+                    </div>
+                    <div class="p-3 bg-white rounded border border-stone-200">
+                        <strong class="block mb-1">3. 對彩 (Pair)</strong>
+                        <p>只對前兩碼或後兩碼。機率 1/100。適合穩健型玩家。</p>
                     </div>
                     
-                    <div class="mt-4 pt-4 border-t border-stone-100">
-                        <h5 class="font-bold text-stone-800 text-sm mb-2 flex items-center gap-1">💡 實戰攻略 (專家級)</h5>
-                        <ul class="text-xs text-stone-500 space-y-2 bg-stone-50 p-3 rounded-xl border border-stone-100">
-                            <li><strong class="text-stone-700">和值分析：</strong>最常開和值 13、14。鎖定 10~20 黃金區間。</li>
-                            <li><strong class="text-stone-700">冷熱配比：</strong>建議 1 熱 + 2 溫，勿全追熱號。</li>
-                            <li><strong class="text-stone-700">形態判斷：</strong>觀察對子 (AAB) 與雜六 (ABC) 的週期。</li>
-                        </ul>
-                    </div>
+                    <h5 class="font-bold text-stone-800 text-lg mt-4">💡 實戰攻略 (專家級)</h5>
+                    <ul class="list-disc pl-5 space-y-2">
+                        <li><strong>和值分析：</strong>最常見的和值為 13、14。建議鎖定 10~20 的「黃金和值區間」，涵蓋率約 70%。</li>
+                        <li><strong>冷熱配比：</strong>不要全追熱號。建議 1 熱 + 2 溫 的組合最穩定。</li>
+                        <li><strong>形態判斷：</strong>觀察近期是「對子 (AAB)」多還是「雜六 (ABC)」多，順勢操作。</li>
+                    </ul>
                 </div>
             `
         },
@@ -288,9 +70,7 @@ export const GAME_CONFIG = {
             type: 'digit',
             range: 9,
             count: 4,
-            drawDays: [1, 2, 3, 4, 5, 6],
-            sourceKey: '4D',
-            desc: "週一至週六開獎。挑戰千分之四的中獎機會。",
+            desc: "從0000~9999中選號，分為正彩、組彩。",
             subModes: [
                 { id: 'direct', name: '🔴 正彩', count: 4, rule: '需數字與位置完全對中' },
                 { id: 'group', name: '🔵 組彩', count: 4, rule: '數字對中即可，不限位置' }
@@ -298,25 +78,15 @@ export const GAME_CONFIG = {
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg">四星彩玩法規則</h5>
-                    <div class="grid grid-cols-1 gap-3">
-                        <div class="p-3 bg-white rounded-xl border border-stone-200 shadow-sm relative overflow-hidden group">
-                            <div class="absolute right-0 top-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8 transition group-hover:scale-110"></div>
-                            <strong class="block mb-1 text-red-600 relative z-10">🔴 正彩 (Direct)</strong>
-                            <p class="text-xs text-stone-500 relative z-10">四個數字與位置需完全相同。<br>機率 1/10000。獎金 $5,000。</p>
-                        </div>
-                        <div class="p-3 bg-white rounded-xl border border-stone-200 shadow-sm relative overflow-hidden group">
-                            <div class="absolute right-0 top-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8 transition group-hover:scale-110"></div>
-                            <strong class="block mb-1 text-blue-600 relative z-10">🔵 組彩 (Group)</strong>
-                            <p class="text-xs text-stone-500 relative z-10">四個數字相同即可，不限順序。<br>4/6/12/24 組彩，獎金依機率浮動。</p>
-                        </div>
-                    </div>
+                    <p><strong>1. 正彩：</strong>四個數字與位置需完全相同。機率 1/10000。</p>
+                    <p><strong>2. 組彩：</strong>四個數字相同即可，不限順序。含 24組彩(全異)、12組彩(一對)、6組彩(兩對)、4組彩(三同)。</p>
                 </div>
             `
         }
     },
     ORDER: ['大樂透', '威力彩', '今彩539', '3星彩', '4星彩'],
     
-    // 學派說明 (維持不變)
+    // 學派說明 (包含開合詳細資訊)
     SCHOOLS: {
         balance: { 
             color: "border-school-balance", 
@@ -370,24 +140,27 @@ export const GAME_CONFIG = {
         },
         pattern: { 
             color: "border-school-pattern", 
-            title: "關聯學派", 
+            title: "關聯學派 (V4.2)", 
             desc: `
                 <div>
-                    <span class="font-bold text-school-pattern block mb-1 text-sm">核心策略：</span>
-                    <p class="text-justify leading-relaxed text-stone-600 text-sm">工業級統計分析 (V4.2)。引入時間衰退權重與 Z-Score 檢定，捕捉號碼間的隱形引力，並支援多種戰術切換。</p>
+                    <span class="font-bold text-school-pattern block mb-1 text-sm">核心策略 (V4.2)：</span>
+                    <p class="text-justify leading-relaxed text-stone-600 text-sm">工業級關聯分析。搭載 <strong>V4.2 多策略引擎</strong>，結合加權拖牌、鄰號慣性與 Z-Score 尾數檢定，支援「激進/保守/平衡」戰術切換。</p>
                 </div>
                 <details class="mt-3 group">
                     <summary class="cursor-pointer font-bold text-school-pattern text-sm list-none flex items-center gap-2 transition-all hover:opacity-80">
-                        <span>▶ 工業級算法 (V4.2 Engine)：</span>
+                        <span>▶ 混合算法 (Logic Mix)：</span>
                     </summary>
                     <div class="mt-2 pl-3 text-xs text-stone-500 space-y-2 border-l-2 border-school-pattern">
-                        <p>1. <strong>加權拖牌矩陣：</strong>引入 0.995 時間衰退因子，近期數據權重更高，精準捕捉趨勢。</p>
-                        <p>2. <strong>Z-Score 尾數檢定：</strong>使用 1.96 (97.5%) 信賴區間，科學過濾隨機假熱號。</p>
-                        <p>3. <strong>多策略引擎：</strong>(針對3星彩) 支援「綜合熱門」、「次熱避險」、「分散配置」等戰術切換。</p>
-                        <p>4. <strong>動態配額：</strong>根據資料充足度自動調整拖牌/鄰號/尾數比例，並具備工業級資料防呆。</p>
+                        <p>1. 加權拖牌矩陣 (Weighted Drag Map)：引入時間衰退與 Laplace 平滑，精準計算號碼間的引力。</p>
+                        <p>2. Z-Score 尾數檢定：使用 1.96 標準差過濾假熱號，找出真正的統計顯著尾數。</p>
+                        <p>3. 多策略戰術 (Multi-Strategy)：
+                           <br>• <strong>Default/Balanced</strong>：熱門+和值優化
+                           <br>• <strong>Aggressive</strong>：純粹追擊趨勢
+                           <br>• <strong>Conservative</strong>：鎖定次熱門避險
+                        </p>
                         <div class="mt-2 pt-2 border-t border-stone-200">
                             <span class="font-bold text-red-500">🔴 證據顯示 (Tag)：</span>
-                            <p class="mt-1">24→12(8.5%)：(拖牌) 顯示來源與條件機率。<br>Z:2.3：(尾數) 顯示標準差檢定強度。<br>分散配置：(策略) 顯示當前使用的選號戰術。</p>
+                            <p class="mt-1">15→28(5.2%)：拖牌機率。<br>7尾(Z:2.1)：Z-Score 統計強度。<br>05鄰號：鄰近號碼效應。</p>
                         </div>
                     </div>
                 </details>
