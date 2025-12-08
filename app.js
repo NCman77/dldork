@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.0：還原至穩定版本 (僅串接 V4.2 引擎，移除不穩定的 UI 顯示邏輯)
+ * V27.3：修正獎金讀取邏輯 (支援物件格式) 與顯示順序 (獎金在左)
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -364,12 +364,10 @@ const App = {
         }
     },
 
-    // ================= 核心資料載入流程 (還原為穩定版本) =================
+    // ================= 核心資料載入流程 =================
     async initFetch() {
         this.setSystemStatus('loading');
-
         try {
-            // Phase 0：Firebase 快取
             if (this.state.db) {
                 try {
                     const fbData = await loadFromFirestore(this.state.db);
@@ -377,73 +375,45 @@ const App = {
                         const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
                         this.processAndRender(quickData);
                     }
-                } catch (e) {
-                    console.warn("Firebase 快取讀取失敗，改用完整載入", e);
-                }
+                } catch (e) { console.warn("Firebase 快取讀取失敗", e); }
             }
 
-            // Phase 1：靜態 JSON + ZIP + Local Cache + Firestore
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
             if (jsonRes.ok) {
                 const jsonData = await jsonRes.json();
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
+                
+                // V27.3: 讀取到 Jackpots 後更新 Dashboard
+                if (this.state.currentGame) this.updateDashboard();
+                
                 if (jsonData.last_updated) {
-                    document.getElementById('last-update-time').innerText =
-                        jsonData.last_updated.split(' ')[0];
+                    document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
                 }
             }
 
             const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
-                try {
-                    return await fetchAndParseZip(url);
-                } catch (e) {
-                    console.warn(`ZIP 載入失敗: ${url}`, e);
-                    return {};
-                }
+                try { return await fetchAndParseZip(url); } catch (e) { return {}; }
             });
             const zipResults = await Promise.all(zipPromises);
-
             const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) {
                 firestoreData = await loadFromFirestore(this.state.db);
             }
 
-            const initialData = mergeLotteryData(
-                { games: baseData },
-                zipResults,
-                localCache,
-                firestoreData
-            );
+            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
             this.processAndRender(initialData);
 
-            // Phase 2：Live API
             const liveData = await fetchLiveLotteryData();
-
             if (liveData && Object.keys(liveData).length > 0) {
-                const finalData = mergeLotteryData(
-                    { games: baseData },
-                    zipResults,
-                    liveData,
-                    firestoreData
-                );
+                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
-                if (this.state.currentGame) {
-                    this.updateDashboard();
-                }
-                try {
-                    saveToCache(liveData);
-                } catch (e) {
-                    console.warn("Local Cache 寫入失敗:", e);
-                }
-                if (this.state.db) {
-                    saveToFirestore(this.state.db, liveData)
-                        .catch(e => console.warn("Firestore 寫入失敗:", e));
-                }
+                if (this.state.currentGame) this.updateDashboard();
+                try { saveToCache(liveData); } catch (e) {}
+                if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
             }
-
             this.checkSystemStatus();
         } catch (e) {
             console.error("Critical Data Error:", e);
@@ -465,17 +435,11 @@ const App = {
         const text = document.getElementById('system-status-text');
         const icon = document.getElementById('system-status-icon');
         if (status === 'loading') {
-            text.innerText = "連線更新中...";
-            text.className = "text-yellow-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
+            text.innerText = "連線更新中..."; text.className = "text-yellow-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
         } else if (status === 'success') {
-            text.innerText = "系統連線正常";
-            text.className = "text-green-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-green-500";
+            text.innerText = "系統連線正常"; text.className = "text-green-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-green-500";
         } else {
-            text.innerText = `資料過期 ${dateStr ? `(${dateStr})` : ""}`;
-            text.className = "text-red-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-red-500";
+            text.innerText = `資料過期 ${dateStr}`; text.className = "text-red-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-red-500";
         }
     },
 
@@ -489,27 +453,17 @@ const App = {
         for (let game in this.state.rawData) {
             if (this.state.rawData[game].length > 0) {
                 const lastDate = this.state.rawData[game][0].date;
-                if (!latestDateObj || lastDate > latestDateObj) {
-                    latestDateObj = lastDate;
-                }
-                if (lastDate >= threeDaysAgo) {
-                    hasLatestData = true;
-                }
+                if (!latestDateObj || lastDate > latestDateObj) latestDateObj = lastDate;
+                if (lastDate >= threeDaysAgo) hasLatestData = true;
             }
         }
-
-        const dataCount = Object.values(this.state.rawData)
-            .reduce((acc, curr) => acc + curr.length, 0);
+        const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
         const dateStr = latestDateObj ? latestDateObj.toLocaleDateString() : "無資料";
-
-        if (dataCount === 0 || !hasLatestData) {
-            this.setSystemStatus('error', dateStr);
-        } else {
-            this.setSystemStatus('success');
-        }
+        if (dataCount === 0 || !hasLatestData) this.setSystemStatus('error', dateStr);
+        else this.setSystemStatus('success');
     },
 
-    // ================== UI：遊戲 & 歷史 & 學派 ==================
+    // ================== UI 控制 ==================
     renderGameButtons() {
         const container = document.getElementById('game-btn-container');
         container.innerHTML = '';
@@ -521,8 +475,7 @@ const App = {
                 this.state.currentGame = gameName;
                 this.state.currentSubMode = null;
                 this.resetFilter();
-                document.querySelectorAll('.game-tab-btn')
-                    .forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active'));
                 btn.classList.add('active');
                 this.updateDashboard();
             };
@@ -540,37 +493,24 @@ const App = {
         const gameDef = GAME_CONFIG.GAMES[gameName];
         let data = this.state.rawData[gameName] || [];
 
-        if (this.state.filterPeriod) {
-            data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
-        }
-        if (this.state.filterYear) {
-            data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
-        }
-        if (this.state.filterMonth) {
-            data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
-        }
+        if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
+        if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
+        if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
 
         document.getElementById('current-game-title').innerText = gameName;
         document.getElementById('total-count').innerText = data.length;
-        document.getElementById('latest-period').innerText =
-            data.length > 0 ? `${data[0].period}期` : "--期";
+        document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
-        const jackpotContainer = document.getElementById('jackpot-container');
-        if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) {
-            jackpotContainer.classList.remove('hidden');
-            document.getElementById('jackpot-amount').innerText =
-                `$${this.state.rawJackpots[gameName]}`;
-        } else {
-            jackpotContainer.classList.add('hidden');
-        }
+        // V27.3: 確保底部舊的 Jackpot 區塊隱藏
+        document.getElementById('jackpot-container').classList.add('hidden');
 
-        this.renderSubModeUI(gameDef);
+        // ✨ 這裡傳入 data 以便 renderSubModeUI 讀取最新獎金
+        this.renderSubModeUI(gameDef, data);
+        
         this.renderHotStats('stat-year', data);
         this.renderHotStats('stat-month', data.slice(0, 30));
         this.renderHotStats('stat-recent', data.slice(0, 10));
-        document.getElementById('no-result-msg')
-            .classList.toggle('hidden', data.length > 0);
-
+        document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0);
         this.renderDrawOrderControls();
         this.renderHistoryList(data.slice(0, 5));
     },
@@ -584,24 +524,7 @@ const App = {
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
         `;
         if (!document.getElementById('order-btn-style')) {
-            document.head.insertAdjacentHTML('beforeend', `
-                <style id="order-btn-style">
-                    .order-btn {
-                        padding: 2px 8px;
-                        font-size: 15px;
-                        border-radius: 9999px;
-                        border: 1px solid #d6d3d1;
-                        color: #57534e;
-                        transition: all 150ms;
-                    }
-                    .order-btn.active {
-                        background-color: #10b981;
-                        border-color: #10b981;
-                        color: white;
-                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-                    }
-                </style>
-            `);
+            document.head.insertAdjacentHTML('beforeend', `<style id="order-btn-style">.order-btn { padding: 2px 8px; font-size: 15px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms; } .order-btn.active { background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }</style>`);
         }
     },
 
@@ -612,39 +535,92 @@ const App = {
         this.updateDashboard();
     },
 
-    renderSubModeUI(gameDef) {
+    // ✨ V27.3 核心修改：智慧顯示中間欄位 (金左日右)
+    renderSubModeUI(gameDef, data) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
         rulesContent.classList.add('hidden');
+        
+        area.classList.remove('hidden'); 
+        container.innerHTML = '';
+
         if (gameDef.subModes) {
-            area.classList.remove('hidden');
-            container.innerHTML = '';
-            if (!this.state.currentSubMode) {
-                this.state.currentSubMode = gameDef.subModes[0].id;
-            }
+            if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id;
             gameDef.subModes.forEach(mode => {
                 const tab = document.createElement('div');
                 tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`;
                 tab.innerText = mode.name;
                 tab.onclick = () => {
                     this.state.currentSubMode = mode.id;
-                    document.querySelectorAll('.submode-tab')
-                        .forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                 };
                 container.appendChild(tab);
             });
             rulesContent.innerHTML = gameDef.article || "暫無說明";
         } else {
-            area.classList.add('hidden');
             this.state.currentSubMode = null;
+            
+            // 1. 獲取累積獎金 (支援物件或字串格式)
+            const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
+            let jackpotVal = "--";
+
+            // 優先從 live data (data[0]) 讀取
+            if (data && data.length > 0 && data[0].totalAmount) {
+                jackpotVal = data[0].totalAmount;
+            } 
+            // 其次從 rawJackpots 讀取 (支援物件格式 { totalAmount: "..." })
+            else if (rawJackpot) {
+                jackpotVal = (typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
+                    ? rawJackpot.totalAmount 
+                    : rawJackpot;
+            }
+            
+            // 2. 計算下期開獎日
+            const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
+            
+            // 渲染：獎金卡片 (金黃色) - 左側
+            const moneyBadge = document.createElement('div');
+            moneyBadge.className = 'px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-black border border-amber-200 flex items-center gap-1';
+            moneyBadge.innerHTML = `<span>💰</span> $${jackpotVal}`;
+            container.appendChild(moneyBadge);
+
+            // 渲染：日期卡片 (藍灰色) - 右側
+            const dateBadge = document.createElement('div');
+            dateBadge.className = 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold border border-slate-200 flex items-center gap-1';
+            dateBadge.innerHTML = `<span>📅</span> 下期: ${nextDrawInfo}`;
+            container.appendChild(dateBadge);
+            
+            rulesContent.innerHTML = gameDef.article || gameDef.desc || "暫無說明";
         }
     },
 
+    calculateNextDraw(drawDays) {
+        if (!drawDays || drawDays.length === 0) return "--";
+        const today = new Date();
+        const currentDay = today.getDay(); 
+        
+        let daysUntil = 100;
+        
+        drawDays.forEach(day => {
+            let diff = day - currentDay;
+            if (diff <= 0) diff += 7; 
+            if (diff < daysUntil) {
+                daysUntil = diff;
+            }
+        });
+
+        const nextDate = new Date(today);
+        nextDate.setDate(today.getDate() + daysUntil);
+        const m = nextDate.getMonth() + 1;
+        const d = nextDate.getDate();
+        const weekMap = ["日", "一", "二", "三", "四", "五", "六"];
+        return `${m}/${d} (${weekMap[nextDate.getDay()]})`;
+    },
+
     toggleRules() {
-        document.getElementById('game-rules-content')
-            .classList.toggle('hidden');
+        document.getElementById('game-rules-content').classList.toggle('hidden');
     },
 
     renderHistoryList(data) {
@@ -653,19 +629,11 @@ const App = {
         data.forEach(item => {
             let numsHtml = "";
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame];
-
-            const sourceNumbers =
-                this.state.drawOrder === 'size' &&
-                item.numbers_size && item.numbers_size.length > 0
-                    ? item.numbers_size
-                    : item.numbers || [];
-
+            const sourceNumbers = this.state.drawOrder === 'size' && item.numbers_size && item.numbers_size.length > 0 ? item.numbers_size : item.numbers || [];
             const numbers = sourceNumbers.filter(n => typeof n === 'number');
 
             if (gameDef.type === 'digit') {
-                numsHtml = numbers
-                    .map(n => `<span class="ball-sm">${n}</span>`)
-                    .join('');
+                numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join('');
             } else {
                 const len = numbers.length;
                 let normal = [], special = null;
@@ -675,49 +643,22 @@ const App = {
                 } else {
                     normal = numbers;
                 }
-                numsHtml = normal
-                    .filter(n => typeof n === 'number')
-                    .map(n => `<span class="ball-sm">${n}</span>`)
-                    .join('');
+                numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join('');
                 if (special !== null && typeof special === 'number') {
                     numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
                 }
             }
-
-            list.innerHTML += `
-              <tr class="table-row">
-                <td class="px-5 py-3 border-b border-stone-100">
-                  <div class="font-bold text-stone-700">No. ${item.period}</div>
-                  <div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div>
-                </td>
-                <td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">
-                  ${numsHtml}
-                </td>
-              </tr>`;
+            list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`;
         });
     },
 
     renderHotStats(elId, dataset) {
         const el = document.getElementById(elId);
-        if (!dataset || dataset.length === 0) {
-            el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>';
-            return;
-        }
+        if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; }
         const freq = {};
-        dataset.forEach(d =>
-            d.numbers.forEach(n => {
-                freq[n] = (freq[n] || 0) + 1;
-            })
-        );
-        const sorted = Object.entries(freq)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
-        el.innerHTML = sorted.map(([n, c]) => `
-            <div class="flex flex-col items-center">
-              <div class="ball ball-hot mb-1 scale-75">${n}</div>
-              <div class="text-sm text-stone-600 font-black">${c}</div>
-            </div>
-        `).join('');
+        dataset.forEach(d => d.numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; }));
+        const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join('');
     },
 
     selectSchool(school) {
@@ -725,34 +666,25 @@ const App = {
         const info = GAME_CONFIG.SCHOOLS[school];
         document.querySelectorAll('.school-card').forEach(el => {
             el.classList.remove('active');
-            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => {
-                if (s.color) el.classList.remove(s.color);
-            });
+            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if (s.color) el.classList.remove(s.color); });
         });
         const activeCard = document.querySelector(`.school-${school}`);
         if (activeCard) {
-            activeCard.classList.add('active');
-            activeCard.classList.add(info.color);
+            activeCard.classList.add('active', info.color);
         }
         const container = document.getElementById('school-description');
-        container.className =
-            `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`;
-        container.innerHTML =
-            `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`;
+        container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`;
+        container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`;
         
-        document.getElementById('wuxing-options')
-            .classList.toggle('hidden', school !== 'wuxing');
-        document.getElementById('pattern-options')
-            .classList.toggle('hidden', school !== 'pattern');
+        document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing');
+        document.getElementById('pattern-options').classList.toggle('hidden', school !== 'pattern');
     },
-    
-    // 雖然回復舊版邏輯，但為了不讓介面出錯，這裡保留 V4.2 的事件監聽函數 (即使它暫時不做事)
+
     onPatternStrategyChange() {
         const select = document.getElementById('pattern-strategy-select');
         this.state.currentPatternStrategy = select.value;
     },
 
-    // ================= 學派入口：runPrediction =================
     runPrediction() {
         const gameName = this.state.currentGame;
         const gameDef  = GAME_CONFIG.GAMES[gameName];
@@ -772,7 +704,6 @@ const App = {
         const count  = parseInt(countVal, 10);
         const school = this.state.currentSchool;
         
-        // 這裡依然傳遞 strategy 參數，以便未來無痛升級
         const params = { 
             data, 
             gameDef, 
@@ -784,21 +715,11 @@ const App = {
             let result = null;
 
             switch (school) {
-                case 'balance':
-                    result = algoBalance(params);
-                    break;
-                case 'stat':
-                    result = algoStat(params);
-                    break;
-                case 'pattern':
-                    result = algoPattern(params);
-                    break;
-                case 'ai':
-                    result = algoAI(params);
-                    break;
-                case 'wuxing':
-                    result = this.algoWuxing(params);
-                    break;
+                case 'balance': result = algoBalance(params); break;
+                case 'stat': result = algoStat(params); break;
+                case 'pattern': result = algoPattern(params); break;
+                case 'ai': result = algoAI(params); break;
+                case 'wuxing': result = this.algoWuxing(params); break;
             }
 
             if (result) {
@@ -810,20 +731,15 @@ const App = {
         }
     },
 
-    // 五行學派
     algoWuxing({ gameDef }) {
         const wuxingWeights = {};
         const wuxingTagMap  = {};
         const min = (gameDef.type === 'digit' ? 0 : 1);
-
         for (let k = min; k <= gameDef.range; k++) {
-            wuxingWeights[k] = 10;
-            wuxingTagMap[k]  = "基礎運數";
+            wuxingWeights[k] = 10; wuxingTagMap[k]  = "基礎運數";
         }
-
-        const pid     = document.getElementById('profile-select').value;
+        const pid = document.getElementById('profile-select').value;
         const profile = this.state.profiles.find(p => p.id == pid);
-
         const useZiwei  = document.getElementById('check-purple')?.checked;
         const useAstro  = document.getElementById('check-astro')?.checked;
         const useName   = document.getElementById('check-name')?.checked;
@@ -835,43 +751,21 @@ const App = {
         if (useZodiac) applyWuxingLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
 
         const wuxingContext = { tagMap: wuxingTagMap };
-
-        const pickZone1 = calculateZone(
-            [], gameDef.range, gameDef.count,
-            false, 'wuxing',
-            [], wuxingWeights, null, wuxingContext
-        );
-
+        const pickZone1 = calculateZone([], gameDef.range, gameDef.count, false, 'wuxing', [], wuxingWeights, null, wuxingContext);
         let pickZone2 = [];
         if (gameDef.type === 'power') {
-            pickZone2 = calculateZone(
-                [], gameDef.zone2, 1,
-                true, 'wuxing',
-                [], wuxingWeights, null, wuxingContext
-            );
+            pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
         }
+        const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
+        const dominant = tags.sort((a, b) => tags.filter(v => v === a).length - tags.filter(v => v === b).length).pop();
 
-        const tags     = [...pickZone1, ...pickZone2].map(o => o.tag);
-        const dominant = tags.sort((a, b) =>
-            tags.filter(v => v === a).length - tags.filter(v => v === b).length
-        ).pop();
-
-        return {
-            numbers: [...pickZone1, ...pickZone2],
-            groupReason: `💡 流年格局：[${dominant}] 主導。`
-        };
+        return { numbers: [...pickZone1, ...pickZone2], groupReason: `💡 流年格局：[${dominant}] 主導。` };
     },
 
     algoSmartWheel(data, gameDef) {
         const results = algoSmartWheel(data, gameDef);
         results.forEach((res, idx) =>
-            this.renderRow(
-                {
-                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                    groupReason: res.groupReason
-                },
-                idx + 1
-            )
+            this.renderRow({ numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })), groupReason: res.groupReason }, idx + 1)
         );
     },
 
@@ -890,36 +784,43 @@ const App = {
           <div class="flex flex-col gap-2 p-4 bg-white rounded-xl border border-stone-200 shadow-sm animate-fade-in hover:shadow-md transition">
             <div class="flex items-center gap-3">
               <span class="text-[10px] font-black text-stone-300 tracking-widest">SET ${index}</span>
-              <div class="flex flex-wrap gap-2">
-        `;
+              <div class="flex flex-wrap gap-2">`;
+        
         resultObj.numbers.forEach(item => {
             html += `
               <div class="flex flex-col items-center">
                 <div class="ball-sm ${colorClass}" style="box-shadow: none;">${item.val}</div>
                 ${item.tag ? `<div class="reason-tag">${item.tag}</div>` : ''}
-              </div>
-            `;
+              </div>`;
         });
-        html += `
-              </div>
-            </div>
-        `;
+        
+        html += `</div></div>`;
+        
         if (resultObj.groupReason) {
             html += `
               <div class="text-[10px] text-stone-500 font-medium bg-stone-50 px-2 py-1.5 rounded border border-stone-100 flex items-center gap-1">
                 <span class="text-sm">💡</span> ${resultObj.groupReason}
-              </div>
-            `;
+              </div>`;
         }
-        
-        // 恢復到簡單的 metadata 顯示，或暫時隱藏，避免 undefined 錯誤
+
         if (resultObj.metadata) {
-             const meta = resultObj.metadata;
-             let metaHtml = `<div class="metadata-box">`;
-             // 只顯示基本的，避免複雜邏輯出錯
-             if (meta.dataSize) metaHtml += `<span class="meta-item"><span class="meta-icon">📚</span>${meta.dataSize}期</span>`;
-             metaHtml += `</div>`;
-             html += metaHtml;
+            const meta = resultObj.metadata;
+            let metaHtml = `<div class="metadata-box">`;
+            if (meta.dataSize) metaHtml += `<span class="meta-item"><span class="meta-icon">📚</span>${meta.dataSize}期</span>`;
+            if (meta.allocation) {
+                const { drag, neighbor, tail } = meta.allocation;
+                metaHtml += `<span class="meta-item"><span class="meta-icon">⚙️</span>${drag}/${neighbor}/${tail}</span>`;
+            }
+            if (meta.strategy) {
+                const stratName = 
+                    meta.strategy === 'aggressive' ? '激進' :
+                    meta.strategy === 'conservative' ? '避險' :
+                    meta.strategy === 'balanced' ? '分散' : '綜合';
+                metaHtml += `<span class="meta-item"><span class="meta-icon">🎯</span>${stratName}</span>`;
+            }
+            if (meta.version) metaHtml += `<span class="meta-item text-purple-300">v${meta.version}</span>`;
+            metaHtml += `</div>`;
+            html += metaHtml;
         }
 
         html += `</div>`;
