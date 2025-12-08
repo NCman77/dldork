@@ -1,7 +1,7 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * V27.0：更新關聯學派說明以匹配 V4.2 引擎
+ * V27.1：新增 drawDays (開獎日) 與 sourceKey (獎金對應碼) 以支援儀表板顯示
  */
 
 export const GAME_CONFIG = {
@@ -12,7 +12,9 @@ export const GAME_CONFIG = {
             range: 49,
             count: 6,
             special: true, // 有特別號但邏輯上是從同一個池選
-            desc: "在01~49中選取6個號碼，每週二、五開獎。",
+            drawDays: [2, 5], // 週二、週五
+            sourceKey: 'Lotto649', // 對應 API 的 jackpots 欄位
+            desc: "每週二、五開獎。49 選 6，財富自由的入場券。",
             subModes: null
         },
         '威力彩': {
@@ -20,7 +22,9 @@ export const GAME_CONFIG = {
             range: 38,     // 第一區 1-38
             count: 6,
             zone2: 8,      // 第二區 1-8
-            desc: "第一區01~38選6個，第二區01~08選1個。",
+            drawDays: [1, 4], // 週一、週四
+            sourceKey: 'SuperLotto638',
+            desc: "每週一、四開獎。高額頭獎的首選，雙區制霸。",
             subModes: null
         },
         '今彩539': {
@@ -28,14 +32,18 @@ export const GAME_CONFIG = {
             range: 39,
             count: 5,
             special: false,
-            desc: "01~39選5個，每週一至六開獎。",
+            drawDays: [1, 2, 3, 4, 5, 6], // 週一至週六
+            sourceKey: 'Daily539',
+            desc: "週一至週六開獎。小賭怡情，中獎機率高。",
             subModes: null
         },
         '3星彩': {
             type: 'digit', // 數字型
             range: 9,      // 0-9
             count: 3,
-            desc: "從000~999中選號，分為正彩、組彩、對彩。",
+            drawDays: [1, 2, 3, 4, 5, 6],
+            sourceKey: '3D',
+            desc: "週一至週六開獎。正彩、組彩、對彩，玩法多變。",
             subModes: [
                 { id: 'direct', name: '🔴 正彩', count: 3, rule: '需數字與位置完全對中' },
                 { id: 'group', name: '🔵 組彩', count: 3, rule: '數字對中即可，不限位置' },
@@ -70,7 +78,9 @@ export const GAME_CONFIG = {
             type: 'digit',
             range: 9,
             count: 4,
-            desc: "從0000~9999中選號，分為正彩、組彩。",
+            drawDays: [1, 2, 3, 4, 5, 6],
+            sourceKey: '4D',
+            desc: "週一至週六開獎。挑戰千分之四的中獎機會。",
             subModes: [
                 { id: 'direct', name: '🔴 正彩', count: 4, rule: '需數字與位置完全對中' },
                 { id: 'group', name: '🔵 組彩', count: 4, rule: '數字對中即可，不限位置' }
