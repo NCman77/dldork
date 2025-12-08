@@ -1,7 +1,10 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.5：保留 V27.4 所有功能，並針對受限環境強化 Firebase 容錯與分段執行防護
+ * V27.2 (Restored & Safe)：
+ * 1. 還原至「僅讀取靜態獎金」的邏輯 (不抓取 Live totalAmount)。
+ * 2. 支援新版 game_config.js 的表格化說明 (Article)。
+ * 3. 加強 Storage 錯誤防護，防止瀏覽器紅字中斷程式執行。
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -48,7 +51,6 @@ const App = {
     },
 
     init() {
-        // 先嘗試初始化 Firebase，失敗則靜默並切換到本地模式
         this.initFirebase();
         this.selectSchool('balance');
         this.populateYearSelect();
@@ -77,14 +79,12 @@ const App = {
             });
     },
 
-    // ================= Firebase / Profile / API Key 相關 (強化防護版) =================
+    // ================= Firebase / Profile / API Key 相關 =================
     async initFirebase() {
-        // 如果沒有引入 SDK，直接切換到本地模式
         if (typeof window.firebaseModules === 'undefined') {
             this.loadProfilesLocal();
             return;
         }
-
         const { initializeApp, getAuth, onAuthStateChanged, getFirestore, getDoc, doc } = window.firebaseModules;
         const firebaseConfig = {
             apiKey: "AIzaSyBatltfrvZ5AXixdZBcruClqYrA-9ihsI0",
@@ -96,52 +96,37 @@ const App = {
         };
 
         try {
-            // 嘗試初始化 App
             const app = initializeApp(firebaseConfig);
-            
-            // 嘗試初始化 Auth 與 Firestore (這裡最容易因為 Storage 權限崩潰)
-            try {
-                const auth = getAuth(app);
-                this.state.db = getFirestore(app);
+            const auth = getAuth(app);
+            this.state.db = getFirestore(app);
 
-                // 監聽登入狀態 (這是最危險的步驟，必須包好)
-                onAuthStateChanged(auth, async (user) => {
+            onAuthStateChanged(auth, async (user) => {
+                this.state.user = user;
+                this.updateAuthUI(user);
+                if (user) {
+                    await this.loadProfilesCloud(user.uid);
+                    const ref = doc(
+                        this.state.db,
+                        'artifacts', 'lottery-app',
+                        'users', user.uid,
+                        'settings', 'api'
+                    );
                     try {
-                        this.state.user = user;
-                        this.updateAuthUI(user);
-                        if (user) {
-                            await this.loadProfilesCloud(user.uid);
-                            // 讀取 API Key 設定
-                            if (this.state.db) {
-                                const ref = doc(
-                                    this.state.db,
-                                    'artifacts', 'lottery-app',
-                                    'users', user.uid,
-                                    'settings', 'api'
-                                );
-                                const snap = await getDoc(ref);
-                                if (snap.exists()) {
-                                    this.state.apiKey = snap.data().key;
-                                    const keyInput = document.getElementById('gemini-api-key');
-                                    if(keyInput) keyInput.value = this.state.apiKey;
-                                }
-                            }
-                        } else {
-                            this.loadProfilesLocal();
+                        const snap = await getDoc(ref);
+                        if (snap.exists()) {
+                            this.state.apiKey = snap.data().key;
+                            document.getElementById('gemini-api-key').value = this.state.apiKey;
                         }
-                    } catch (innerErr) {
-                        console.warn("[Firebase] Auth State Change Error (Safe Mode):", innerErr);
-                        this.loadProfilesLocal(); // 出錯時回退到本地
+                    } catch (e) {
+                        // 靜默失敗，不影響主流程
+                        console.warn("Firebase Read Error (Storage blocked?):", e);
                     }
-                });
-
-            } catch (serviceErr) {
-                console.warn("[Firebase] Service Init Blocked (Storage Access?):", serviceErr);
-                this.loadProfilesLocal(); // 服務初始化失敗，回退本地
-            }
-
+                } else {
+                    this.loadProfilesLocal();
+                }
+            });
         } catch (e) {
-            console.error("[Firebase] Critical Init Error:", e);
+            console.error("Firebase Init Error:", e);
             this.loadProfilesLocal();
         }
     },
@@ -191,7 +176,6 @@ const App = {
             this.renderProfileList();
         } catch (e) {
             console.warn("Load Cloud Profiles Failed:", e);
-            this.loadProfilesLocal(); // Fallback
         }
     },
 
@@ -384,86 +368,70 @@ const App = {
         }
     },
 
-    // ================= 核心資料載入流程 (分段防護版) =================
+    // ================= 核心資料載入流程 =================
     async initFetch() {
         this.setSystemStatus('loading');
-        
-        let baseData = {};
-        let zipResults = [];
-        let liveData = {};
-        let firestoreData = {};
-
-        // Phase 0: Firestore 快取 (隔離執行)
         try {
+            // Phase 0: Firestore 快取
             if (this.state.db) {
-                const fbData = await loadFromFirestore(this.state.db);
-                if (fbData && Object.keys(fbData).length > 0) {
-                    const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
-                    this.processAndRender(quickData);
-                }
+                try {
+                    const fbData = await loadFromFirestore(this.state.db);
+                    if (fbData && Object.keys(fbData).length > 0) {
+                        const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
+                        this.processAndRender(quickData);
+                    }
+                } catch (e) { console.warn("Firebase 快取讀取失敗", e); }
             }
-        } catch (e) { 
-            console.warn("[Init] Firestore Read Skipped (Storage Blocked?)", e); 
-        }
 
-        // Phase 1: 靜態 JSON (最穩定來源)
-        try {
+            // Phase 1: 靜態 JSON
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
+            let baseData = {};
             if (jsonRes.ok) {
                 const jsonData = await jsonRes.json();
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
                 
-                // 優先更新 UI，確保使用者有東西看 (如獎金)
+                // 更新 Dashboard 以顯示靜態 Jackpot
                 if (this.state.currentGame) this.updateDashboard();
                 
                 if (jsonData.last_updated) {
                     document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
                 }
             }
-        } catch (e) {
-            console.error("[Init] JSON Fetch Failed:", e);
-        }
 
-        // Phase 2: ZIP 檔案 (隔離執行)
-        try {
+            // Phase 2: ZIP 檔案
             const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
                 try { return await fetchAndParseZip(url); } catch (e) { return {}; }
             });
-            zipResults = await Promise.all(zipPromises);
-        } catch (e) {
-            console.error("[Init] ZIP Fetch Failed:", e);
-        }
+            const zipResults = await Promise.all(zipPromises);
+            const localCache = loadFromCache()?.data || {};
+            let firestoreData = {};
+            if (this.state.db) {
+                firestoreData = await loadFromFirestore(this.state.db);
+            }
 
-        // Phase 3: 本地快取讀取 (隔離執行)
-        let localCache = {};
-        try {
-            localCache = loadFromCache()?.data || {};
-        } catch(e) { /* Ignore */ }
+            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
+            this.processAndRender(initialData);
 
-        // 合併靜態資料並顯示
-        const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
-        this.processAndRender(initialData);
-
-        // Phase 4: Live API (最後衝刺)
-        try {
-            liveData = await fetchLiveLotteryData();
+            // Phase 3: Live API
+            const liveData = await fetchLiveLotteryData();
             if (liveData && Object.keys(liveData).length > 0) {
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
-                
-                // 再次更新 Dashboard 以顯示最新的 Live Data (含即時獎金)
                 if (this.state.currentGame) this.updateDashboard();
                 
-                // 嘗試存檔 (但不阻擋流程)
-                try { saveToCache(liveData); } catch (e) {}
-                if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
+                // ⚠️ 防崩潰修正：將存檔操作包在 try-catch 中，即使瀏覽器擋 Storage 也不會死機
+                try { saveToCache(liveData); } catch (e) { console.warn("Local Cache Blocked (Safe Mode)", e); }
+                if (this.state.db) { 
+                    saveToFirestore(this.state.db, liveData).catch(e => console.warn("Firestore Save Blocked (Safe Mode)", e)); 
+                }
             }
+            this.checkSystemStatus();
         } catch (e) {
-            console.error("[Init] Live API Failed:", e);
+            console.error("Critical Data Error:", e);
+            this.checkSystemStatus();
+            this.renderGameButtons();
         }
-
-        this.checkSystemStatus();
     },
 
     processAndRender(mergedData) {
@@ -545,10 +513,9 @@ const App = {
         document.getElementById('total-count').innerText = data.length;
         document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // V27.4: 確保底部舊的 Jackpot 區塊隱藏
+        // V27.2: 確保底部舊的 Jackpot 區塊隱藏
         document.getElementById('jackpot-container').classList.add('hidden');
 
-        // ✨ 這裡傳入 data 以便 renderSubModeUI 讀取最新獎金
         this.renderSubModeUI(gameDef, data);
         
         this.renderHotStats('stat-year', data);
@@ -579,7 +546,7 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.4 核心修改：智慧顯示中間欄位 (金左日右)
+    // ✨ V27.2 還原：只讀取靜態獎金 (不抓 data[0].totalAmount)，但保留金左日右佈局
     renderSubModeUI(gameDef, data) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
@@ -606,16 +573,12 @@ const App = {
         } else {
             this.state.currentSubMode = null;
             
-            // 1. 獲取累積獎金 (支援物件或字串格式)
+            // 1. 只從 rawJackpots 讀取 (支援物件或字串格式)
             const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
             let jackpotVal = "--";
 
-            // 優先從 live data (data[0]) 讀取
-            if (data && data.length > 0 && data[0].totalAmount) {
-                jackpotVal = data[0].totalAmount;
-            } 
-            // 其次從 rawJackpots 讀取 (支援物件格式 { totalAmount: "..." })
-            else if (rawJackpot) {
+            // 支援物件格式 { totalAmount: "..." } 或直接金額字串
+            if (rawJackpot) {
                 jackpotVal = (typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
                     ? rawJackpot.totalAmount 
                     : rawJackpot;
