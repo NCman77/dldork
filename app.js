@@ -1,10 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.2 (Restored & Safe)：
- * 1. 還原至「僅讀取靜態獎金」的邏輯 (不抓取 Live totalAmount)。
- * 2. 支援新版 game_config.js 的表格化說明 (Article)。
- * 3. 加強 Storage 錯誤防護，防止瀏覽器紅字中斷程式執行。
+ * V27.1：智慧適配版 (還原至 CSV 解析正常、UI 功能完整的穩定版本)
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -118,7 +115,6 @@ const App = {
                             document.getElementById('gemini-api-key').value = this.state.apiKey;
                         }
                     } catch (e) {
-                        // 靜默失敗，不影響主流程
                         console.warn("Firebase Read Error (Storage blocked?):", e);
                     }
                 } else {
@@ -372,7 +368,6 @@ const App = {
     async initFetch() {
         this.setSystemStatus('loading');
         try {
-            // Phase 0: Firestore 快取
             if (this.state.db) {
                 try {
                     const fbData = await loadFromFirestore(this.state.db);
@@ -383,7 +378,6 @@ const App = {
                 } catch (e) { console.warn("Firebase 快取讀取失敗", e); }
             }
 
-            // Phase 1: 靜態 JSON
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
             if (jsonRes.ok) {
@@ -391,7 +385,7 @@ const App = {
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
                 
-                // 更新 Dashboard 以顯示靜態 Jackpot
+                // V27.1: 讀取到 Jackpots 後更新 Dashboard
                 if (this.state.currentGame) this.updateDashboard();
                 
                 if (jsonData.last_updated) {
@@ -399,11 +393,11 @@ const App = {
                 }
             }
 
-            // Phase 2: ZIP 檔案
             const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
                 try { return await fetchAndParseZip(url); } catch (e) { return {}; }
             });
             const zipResults = await Promise.all(zipPromises);
+            
             const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) {
@@ -413,18 +407,14 @@ const App = {
             const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
             this.processAndRender(initialData);
 
-            // Phase 3: Live API
             const liveData = await fetchLiveLotteryData();
             if (liveData && Object.keys(liveData).length > 0) {
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
                 if (this.state.currentGame) this.updateDashboard();
                 
-                // ⚠️ 防崩潰修正：將存檔操作包在 try-catch 中，即使瀏覽器擋 Storage 也不會死機
-                try { saveToCache(liveData); } catch (e) { console.warn("Local Cache Blocked (Safe Mode)", e); }
-                if (this.state.db) { 
-                    saveToFirestore(this.state.db, liveData).catch(e => console.warn("Firestore Save Blocked (Safe Mode)", e)); 
-                }
+                try { saveToCache(liveData); } catch (e) {}
+                if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
             }
             this.checkSystemStatus();
         } catch (e) {
@@ -513,11 +503,10 @@ const App = {
         document.getElementById('total-count').innerText = data.length;
         document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // V27.2: 確保底部舊的 Jackpot 區塊隱藏
+        // V27.1: 確保底部舊的 Jackpot 區塊隱藏
         document.getElementById('jackpot-container').classList.add('hidden');
 
-        this.renderSubModeUI(gameDef, data);
-        
+        this.renderSubModeUI(gameDef);
         this.renderHotStats('stat-year', data);
         this.renderHotStats('stat-month', data.slice(0, 30));
         this.renderHotStats('stat-recent', data.slice(0, 10));
@@ -546,8 +535,8 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.2 還原：只讀取靜態獎金 (不抓 data[0].totalAmount)，但保留金左日右佈局
-    renderSubModeUI(gameDef, data) {
+    // ✨ V27.1 核心修改：智慧顯示中間欄位
+    renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
@@ -573,16 +562,11 @@ const App = {
         } else {
             this.state.currentSubMode = null;
             
-            // 1. 只從 rawJackpots 讀取 (支援物件或字串格式)
+            // 1. 獲取累積獎金 (支援物件或字串格式)
             const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
-            let jackpotVal = "--";
-
-            // 支援物件格式 { totalAmount: "..." } 或直接金額字串
-            if (rawJackpot) {
-                jackpotVal = (typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
-                    ? rawJackpot.totalAmount 
-                    : rawJackpot;
-            }
+            const jackpotVal = (rawJackpot && typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
+                ? rawJackpot.totalAmount 
+                : (rawJackpot || "--");
             
             // 2. 計算下期開獎日
             const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
