@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.3：修正獎金讀取邏輯 (支援物件格式) 與顯示順序 (獎金在左)
+ * V27.4：修復資料載入日誌問題 + 獎金顯示邏輯優化
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -368,16 +368,23 @@ const App = {
     async initFetch() {
         this.setSystemStatus('loading');
         try {
+            // ✅ Phase 0: Firebase 快取（加入日誌）
             if (this.state.db) {
                 try {
                     const fbData = await loadFromFirestore(this.state.db);
                     if (fbData && Object.keys(fbData).length > 0) {
+                        console.log('✅ [Firestore 快取] 載入成功');
                         const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
                         this.processAndRender(quickData);
+                    } else {
+                        console.log('ℹ️ [Firestore 快取] 無資料');
                     }
-                } catch (e) { console.warn("Firebase 快取讀取失敗", e); }
+                } catch (e) { 
+                    console.warn("Firebase 快取讀取失敗", e); 
+                }
             }
 
+            // Phase 1: 靜態 JSON
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
             if (jsonRes.ok) {
@@ -385,35 +392,66 @@ const App = {
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
                 
-                // V27.3: 讀取到 Jackpots 後更新 Dashboard
                 if (this.state.currentGame) this.updateDashboard();
                 
                 if (jsonData.last_updated) {
-                    document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
+                    document.getElementById('last-update-time').innerText = 
+                        jsonData.last_updated.split(' ')[0];
                 }
             }
 
+            // ✅ Phase 2: ZIP 檔案（修復錯誤處理）
             const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
-                try { return await fetchAndParseZip(url); } catch (e) { return {}; }
+                try { 
+                    return await fetchAndParseZip(url); 
+                } catch (e) { 
+                    console.warn(`⚠️ ZIP 載入失敗: ${url}`, e);
+                    return {};
+                }
             });
             const zipResults = await Promise.all(zipPromises);
+            
             const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) {
                 firestoreData = await loadFromFirestore(this.state.db);
             }
 
-            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
+            const initialData = mergeLotteryData(
+                { games: baseData }, 
+                zipResults, 
+                localCache, 
+                firestoreData
+            );
             this.processAndRender(initialData);
 
+            // ✅ Phase 3: Live API（修復錯誤處理）
             const liveData = await fetchLiveLotteryData();
             if (liveData && Object.keys(liveData).length > 0) {
-                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
+                console.log('✅ [Live API] 抓取成功');
+                const finalData = mergeLotteryData(
+                    { games: baseData }, 
+                    zipResults, 
+                    liveData, 
+                    firestoreData
+                );
                 this.processAndRender(finalData);
                 if (this.state.currentGame) this.updateDashboard();
-                try { saveToCache(liveData); } catch (e) {}
-                if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
+                
+                try { 
+                    saveToCache(liveData); 
+                } catch (e) {
+                    console.warn("Local Cache 寫入失敗:", e);
+                }
+                
+                if (this.state.db) { 
+                    saveToFirestore(this.state.db, liveData)
+                        .catch(e => console.warn("Firestore 寫入失敗:", e)); 
+                }
+            } else {
+                console.warn('⚠️ [Live API] 無資料回傳');
             }
+            
             this.checkSystemStatus();
         } catch (e) {
             console.error("Critical Data Error:", e);
@@ -435,11 +473,17 @@ const App = {
         const text = document.getElementById('system-status-text');
         const icon = document.getElementById('system-status-icon');
         if (status === 'loading') {
-            text.innerText = "連線更新中..."; text.className = "text-yellow-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
+            text.innerText = "連線更新中..."; 
+            text.className = "text-yellow-600 font-bold"; 
+            icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
         } else if (status === 'success') {
-            text.innerText = "系統連線正常"; text.className = "text-green-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-green-500";
+            text.innerText = "系統連線正常"; 
+            text.className = "text-green-600 font-bold"; 
+            icon.className = "w-2 h-2 rounded-full bg-green-500";
         } else {
-            text.innerText = `資料過期 ${dateStr}`; text.className = "text-red-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-red-500";
+            text.innerText = `資料過期 ${dateStr}`; 
+            text.className = "text-red-600 font-bold"; 
+            icon.className = "w-2 h-2 rounded-full bg-red-500";
         }
     },
 
@@ -493,18 +537,25 @@ const App = {
         const gameDef = GAME_CONFIG.GAMES[gameName];
         let data = this.state.rawData[gameName] || [];
 
-        if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
-        if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
-        if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
+        if (this.state.filterPeriod) {
+            data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
+        }
+        if (this.state.filterYear) {
+            data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
+        }
+        if (this.state.filterMonth) {
+            data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
+        }
 
         document.getElementById('current-game-title').innerText = gameName;
         document.getElementById('total-count').innerText = data.length;
-        document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
+        document.getElementById('latest-period').innerText = 
+            data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // V27.3: 確保底部舊的 Jackpot 區塊隱藏
+        // 確保底部舊的 Jackpot 區塊隱藏
         document.getElementById('jackpot-container').classList.add('hidden');
 
-        // ✨ 這裡傳入 data 以便 renderSubModeUI 讀取最新獎金
+        // ✨ 傳入 data 以便 renderSubModeUI 讀取最新獎金
         this.renderSubModeUI(gameDef, data);
         
         this.renderHotStats('stat-year', data);
@@ -524,7 +575,24 @@ const App = {
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
         `;
         if (!document.getElementById('order-btn-style')) {
-            document.head.insertAdjacentHTML('beforeend', `<style id="order-btn-style">.order-btn { padding: 2px 8px; font-size: 15px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms; } .order-btn.active { background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }</style>`);
+            document.head.insertAdjacentHTML('beforeend', `
+                <style id="order-btn-style">
+                    .order-btn { 
+                        padding: 2px 8px; 
+                        font-size: 15px; 
+                        border-radius: 9999px; 
+                        border: 1px solid #d6d3d1; 
+                        color: #57534e; 
+                        transition: all 150ms; 
+                    } 
+                    .order-btn.active { 
+                        background-color: #10b981; 
+                        border-color: #10b981; 
+                        color: white; 
+                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+                    }
+                </style>
+            `);
         }
     },
 
@@ -535,7 +603,7 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.3 核心修改：智慧顯示中間欄位 (金左日右)
+    // ✨ 智慧顯示中間欄位 (金左日右) + 多層 fallback
     renderSubModeUI(gameDef, data) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
@@ -546,7 +614,10 @@ const App = {
         container.innerHTML = '';
 
         if (gameDef.subModes) {
-            if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id;
+            // 有子模式：顯示子模式標籤
+            if (!this.state.currentSubMode) {
+                this.state.currentSubMode = gameDef.subModes[0].id;
+            }
             gameDef.subModes.forEach(mode => {
                 const tab = document.createElement('div');
                 tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`;
@@ -560,25 +631,28 @@ const App = {
             });
             rulesContent.innerHTML = gameDef.article || "暫無說明";
         } else {
+            // 無子模式：顯示獎金和開獎日期
             this.state.currentSubMode = null;
             
-            // 1. 獲取累積獎金 (支援物件或字串格式)
-            const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
+            // ✅ 獲取累積獎金（多層 fallback）
+            const rawJackpot = this.state.rawJackpots[gameDef.sourceKey || gameDef.name];
             let jackpotVal = "--";
 
-            // 優先從 live data (data[0]) 讀取
+            // 1. 優先從 live data (data[0]) 讀取
             if (data && data.length > 0 && data[0].totalAmount) {
                 jackpotVal = data[0].totalAmount;
             } 
-            // 其次從 rawJackpots 讀取 (支援物件格式 { totalAmount: "..." })
+            // 2. 其次從 rawJackpots 讀取（支援物件格式）
             else if (rawJackpot) {
                 jackpotVal = (typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
                     ? rawJackpot.totalAmount 
                     : rawJackpot;
             }
             
-            // 2. 計算下期開獎日
-            const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
+            // ✅ 計算下期開獎日
+            const nextDrawInfo = gameDef.drawDays 
+                ? this.calculateNextDraw(gameDef.drawDays) 
+                : "--";
             
             // 渲染：獎金卡片 (金黃色) - 左側
             const moneyBadge = document.createElement('div');
@@ -629,7 +703,10 @@ const App = {
         data.forEach(item => {
             let numsHtml = "";
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame];
-            const sourceNumbers = this.state.drawOrder === 'size' && item.numbers_size && item.numbers_size.length > 0 ? item.numbers_size : item.numbers || [];
+            const sourceNumbers = this.state.drawOrder === 'size' && 
+                item.numbers_size && item.numbers_size.length > 0 
+                ? item.numbers_size 
+                : item.numbers || [];
             const numbers = sourceNumbers.filter(n => typeof n === 'number');
 
             if (gameDef.type === 'digit') {
@@ -643,22 +720,44 @@ const App = {
                 } else {
                     normal = numbers;
                 }
-                numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join('');
+                numsHtml = normal.filter(n => typeof n === 'number')
+                    .map(n => `<span class="ball-sm">${n}</span>`)
+                    .join('');
                 if (special !== null && typeof special === 'number') {
                     numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
                 }
             }
-            list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`;
+            list.innerHTML += `
+                <tr class="table-row">
+                    <td class="px-5 py-3 border-b border-stone-100">
+                        <div class="font-bold text-stone-700">No. ${item.period}</div>
+                        <div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div>
+                    </td>
+                    <td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">
+                        ${numsHtml}
+                    </td>
+                </tr>
+            `;
         });
     },
 
     renderHotStats(elId, dataset) {
         const el = document.getElementById(elId);
-        if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; }
+        if (!dataset || dataset.length === 0) { 
+            el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; 
+            return; 
+        }
         const freq = {};
-        dataset.forEach(d => d.numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; }));
+        dataset.forEach(d => d.numbers.forEach(n => { 
+            freq[n] = (freq[n] || 0) + 1; 
+        }));
         const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join('');
+        el.innerHTML = sorted.map(([n, c]) => `
+            <div class="flex flex-col items-center">
+                <div class="ball ball-hot mb-1 scale-75">${n}</div>
+                <div class="text-sm text-stone-600 font-black">${c}</div>
+            </div>
+        `).join('');
     },
 
     selectSchool(school) {
@@ -666,7 +765,9 @@ const App = {
         const info = GAME_CONFIG.SCHOOLS[school];
         document.querySelectorAll('.school-card').forEach(el => {
             el.classList.remove('active');
-            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if (s.color) el.classList.remove(s.color); });
+            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { 
+                if (s.color) el.classList.remove(s.color); 
+            });
         });
         const activeCard = document.querySelector(`.school-${school}`);
         if (activeCard) {
@@ -736,7 +837,8 @@ const App = {
         const wuxingTagMap  = {};
         const min = (gameDef.type === 'digit' ? 0 : 1);
         for (let k = min; k <= gameDef.range; k++) {
-            wuxingWeights[k] = 10; wuxingTagMap[k]  = "基礎運數";
+            wuxingWeights[k] = 10; 
+            wuxingTagMap[k]  = "基礎運數";
         }
         const pid = document.getElementById('profile-select').value;
         const profile = this.state.profiles.find(p => p.id == pid);
@@ -751,21 +853,37 @@ const App = {
         if (useZodiac) applyWuxingLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
 
         const wuxingContext = { tagMap: wuxingTagMap };
-        const pickZone1 = calculateZone([], gameDef.range, gameDef.count, false, 'wuxing', [], wuxingWeights, null, wuxingContext);
+        const pickZone1 = calculateZone(
+            [], gameDef.range, gameDef.count, 
+            false, 'wuxing', 
+            [], wuxingWeights, null, wuxingContext
+        );
         let pickZone2 = [];
         if (gameDef.type === 'power') {
-            pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
+            pickZone2 = calculateZone(
+                [], gameDef.zone2, 1, 
+                true, 'wuxing', 
+                [], wuxingWeights, null, wuxingContext
+            );
         }
         const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
-        const dominant = tags.sort((a, b) => tags.filter(v => v === a).length - tags.filter(v => v === b).length).pop();
+        const dominant = tags.sort((a, b) => 
+            tags.filter(v => v === a).length - tags.filter(v => v === b).length
+        ).pop();
 
-        return { numbers: [...pickZone1, ...pickZone2], groupReason: `💡 流年格局：[${dominant}] 主導。` };
+        return { 
+            numbers: [...pickZone1, ...pickZone2], 
+            groupReason: `💡 流年格局：[${dominant}] 主導。` 
+        };
     },
 
     algoSmartWheel(data, gameDef) {
         const results = algoSmartWheel(data, gameDef);
         results.forEach((res, idx) =>
-            this.renderRow({ numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })), groupReason: res.groupReason }, idx + 1)
+            this.renderRow({ 
+                numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })), 
+                groupReason: res.groupReason 
+            }, idx + 1)
         );
     },
 
@@ -806,7 +924,9 @@ const App = {
         if (resultObj.metadata) {
             const meta = resultObj.metadata;
             let metaHtml = `<div class="metadata-box">`;
-            if (meta.dataSize) metaHtml += `<span class="meta-item"><span class="meta-icon">📚</span>${meta.dataSize}期</span>`;
+            if (meta.dataSize) {
+                metaHtml += `<span class="meta-item"><span class="meta-icon">📚</span>${meta.dataSize}期</span>`;
+            }
             if (meta.allocation) {
                 const { drag, neighbor, tail } = meta.allocation;
                 metaHtml += `<span class="meta-item"><span class="meta-icon">⚙️</span>${drag}/${neighbor}/${tail}</span>`;
@@ -818,7 +938,9 @@ const App = {
                     meta.strategy === 'balanced' ? '分散' : '綜合';
                 metaHtml += `<span class="meta-item"><span class="meta-icon">🎯</span>${stratName}</span>`;
             }
-            if (meta.version) metaHtml += `<span class="meta-item text-purple-300">v${meta.version}</span>`;
+            if (meta.version) {
+                metaHtml += `<span class="meta-item text-purple-300">v${meta.version}</span>`;
+            }
             metaHtml += `</div>`;
             html += metaHtml;
         }
