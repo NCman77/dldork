@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.2：強制顯示頭獎與開獎日資訊卡 (UI Visibility Fix)
+ * V27.3：修正獎金讀取邏輯與顯示順序
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -76,7 +76,7 @@ const App = {
             });
     },
 
-    // ================= Firebase / Profile / API Key 相關 =================
+    // ================= Firebase / Profile / API Key 相關 (維持不變) =================
     async initFirebase() {
         if (typeof window.firebaseModules === 'undefined') {
             this.loadProfilesLocal();
@@ -532,7 +532,7 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.2 核心修改：強制顯示中欄資訊
+    // ✨ V27.2 核心修改：強制顯示中欄資訊 (含位置調整與資料讀取修正)
     renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
@@ -561,24 +561,26 @@ const App = {
             // B. 無子玩法 (樂透/威力)：顯示頭獎與開獎日
             this.state.currentSubMode = null;
             
-            // 1. 計算下期開獎日 (若無設定則顯示 --)
+            // 1. 獲取累積獎金 (支援物件或字串格式)
+            const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
+            const jackpotVal = (rawJackpot && typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
+                ? rawJackpot.totalAmount 
+                : (rawJackpot || "--");
+            
+            // 2. 計算下期開獎日
             const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
             
-            // 2. 獲取累積獎金 (若無資料則顯示 --)
-            // 重點修正：使用 || "--" 確保即使沒資料也會顯示卡片
-            const jackpotVal = this.state.rawJackpots[gameDef.sourceKey] || "--";
-            
-            // 渲染：日期卡片 (藍灰色)
-            const dateBadge = document.createElement('div');
-            dateBadge.className = 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold border border-slate-200 flex items-center gap-1';
-            dateBadge.innerHTML = `<span>📅</span> 下期: ${nextDrawInfo}`;
-            container.appendChild(dateBadge);
-
-            // 渲染：獎金卡片 (金黃色)
+            // 渲染：獎金卡片 (金黃色) - 移至左側
             const moneyBadge = document.createElement('div');
             moneyBadge.className = 'px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-black border border-amber-200 flex items-center gap-1';
             moneyBadge.innerHTML = `<span>💰</span> $${jackpotVal}`;
             container.appendChild(moneyBadge);
+
+            // 渲染：日期卡片 (藍灰色) - 移至右側
+            const dateBadge = document.createElement('div');
+            dateBadge.className = 'px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold border border-slate-200 flex items-center gap-1';
+            dateBadge.innerHTML = `<span>📅</span> 下期: ${nextDrawInfo}`;
+            container.appendChild(dateBadge);
             
             // 規則說明內容
             rulesContent.innerHTML = gameDef.article || gameDef.desc || "暫無說明";
