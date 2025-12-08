@@ -1,7 +1,7 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * 包含：標準型(lotto)、雙區型(power)、數字型(digit) 的區分
+ * V27.0：更新關聯學派說明以匹配 V4.2 引擎
  */
 
 export const GAME_CONFIG = {
@@ -144,20 +144,20 @@ export const GAME_CONFIG = {
             desc: `
                 <div>
                     <span class="font-bold text-school-pattern block mb-1 text-sm">核心策略：</span>
-                    <p class="text-justify leading-relaxed text-stone-600 text-sm">捕捉號碼間的隱形連結。分析上期獎號的「拖牌效應」與「尾數連動」，預測版路的下一個落點。</p>
+                    <p class="text-justify leading-relaxed text-stone-600 text-sm">工業級統計分析 (V4.2)。引入時間衰退權重與 Z-Score 檢定，捕捉號碼間的隱形引力，並支援多種戰術切換。</p>
                 </div>
                 <details class="mt-3 group">
                     <summary class="cursor-pointer font-bold text-school-pattern text-sm list-none flex items-center gap-2 transition-all hover:opacity-80">
-                        <span>▶ 混合算法 (Logic Mix)：</span>
+                        <span>▶ 工業級算法 (V4.2 Engine)：</span>
                     </summary>
                     <div class="mt-2 pl-3 text-xs text-stone-500 space-y-2 border-l-2 border-school-pattern">
-                        <p>1. 條件機率矩陣：鎖定「上一期 (Last Draw)」號碼作為種子。</p>
-                        <p>2. 拖牌權重 (Drag Weight)：若某號碼是上一期的開獎號，權重 +20 (賭連莊)。</p>
-                        <p>3. 鄰號效應 (Neighbor Effect)：若某號碼是上一期號碼的左右鄰居 (如上期開 05，則 04, 06 加分)，權重 +15。</p>
-                        <p>4. 尾數群聚分析：分析號碼的個位數 (Mod 10)，判斷是否與上期尾數相同。</p>
+                        <p>1. <strong>加權拖牌矩陣：</strong>引入 0.995 時間衰退因子，近期數據權重更高，精準捕捉趨勢。</p>
+                        <p>2. <strong>Z-Score 尾數檢定：</strong>使用 1.96 (97.5%) 信賴區間，科學過濾隨機假熱號。</p>
+                        <p>3. <strong>多策略引擎：</strong>(針對3星彩) 支援「綜合熱門」、「次熱避險」、「分散配置」等戰術切換。</p>
+                        <p>4. <strong>動態配額：</strong>根據資料充足度自動調整拖牌/鄰號/尾數比例，並具備工業級資料防呆。</p>
                         <div class="mt-2 pt-2 border-t border-stone-200">
                             <span class="font-bold text-red-500">🔴 證據顯示 (Tag)：</span>
-                            <p class="mt-1">連莊強勢：直指該號碼為上期重覆號。<br>05鄰號：明確指出是因為鄰近 05 而被選中。<br>3尾群聚：指出該號碼符合特定的尾數規律。</p>
+                            <p class="mt-1">24→12(8.5%)：(拖牌) 顯示來源與條件機率。<br>Z:2.3：(尾數) 顯示標準差檢定強度。<br>分散配置：(策略) 顯示當前使用的選號戰術。</p>
                         </div>
                     </div>
                 </details>
