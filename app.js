@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.1：智慧適配版 (還原至 CSV 解析正常、UI 功能完整的穩定版本)
+ * V27.3：修正獎金讀取邏輯 (支援物件格式) 與顯示順序 (獎金在左)
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -385,7 +385,7 @@ const App = {
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
                 
-                // V27.1: 讀取到 Jackpots 後更新 Dashboard
+                // V27.3: 讀取到 Jackpots 後更新 Dashboard
                 if (this.state.currentGame) this.updateDashboard();
                 
                 if (jsonData.last_updated) {
@@ -397,7 +397,6 @@ const App = {
                 try { return await fetchAndParseZip(url); } catch (e) { return {}; }
             });
             const zipResults = await Promise.all(zipPromises);
-            
             const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) {
@@ -412,7 +411,6 @@ const App = {
                 const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
                 if (this.state.currentGame) this.updateDashboard();
-                
                 try { saveToCache(liveData); } catch (e) {}
                 if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
             }
@@ -503,10 +501,12 @@ const App = {
         document.getElementById('total-count').innerText = data.length;
         document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // V27.1: 確保底部舊的 Jackpot 區塊隱藏
+        // V27.3: 確保底部舊的 Jackpot 區塊隱藏
         document.getElementById('jackpot-container').classList.add('hidden');
 
-        this.renderSubModeUI(gameDef);
+        // ✨ 這裡傳入 data 以便 renderSubModeUI 讀取最新獎金
+        this.renderSubModeUI(gameDef, data);
+        
         this.renderHotStats('stat-year', data);
         this.renderHotStats('stat-month', data.slice(0, 30));
         this.renderHotStats('stat-recent', data.slice(0, 10));
@@ -535,8 +535,8 @@ const App = {
         this.updateDashboard();
     },
 
-    // ✨ V27.1 核心修改：智慧顯示中間欄位
-    renderSubModeUI(gameDef) {
+    // ✨ V27.3 核心修改：智慧顯示中間欄位 (金左日右)
+    renderSubModeUI(gameDef, data) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
@@ -564,9 +564,18 @@ const App = {
             
             // 1. 獲取累積獎金 (支援物件或字串格式)
             const rawJackpot = this.state.rawJackpots[gameDef.sourceKey];
-            const jackpotVal = (rawJackpot && typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
-                ? rawJackpot.totalAmount 
-                : (rawJackpot || "--");
+            let jackpotVal = "--";
+
+            // 優先從 live data (data[0]) 讀取
+            if (data && data.length > 0 && data[0].totalAmount) {
+                jackpotVal = data[0].totalAmount;
+            } 
+            // 其次從 rawJackpots 讀取 (支援物件格式 { totalAmount: "..." })
+            else if (rawJackpot) {
+                jackpotVal = (typeof rawJackpot === 'object' && rawJackpot.totalAmount) 
+                    ? rawJackpot.totalAmount 
+                    : rawJackpot;
+            }
             
             // 2. 計算下期開獎日
             const nextDrawInfo = gameDef.drawDays ? this.calculateNextDraw(gameDef.drawDays) : "--";
