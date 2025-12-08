@@ -1,7 +1,7 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * V27.2：優化規則說明 (Article)，採用卡片式與表格化排版，提升閱讀體驗
+ * V27.4：依照使用者需求，統一字體樣式並精確修正獎金與中獎條件描述
  */
 
 export const GAME_CONFIG = {
@@ -12,113 +12,79 @@ export const GAME_CONFIG = {
             range: 49,
             count: 6,
             special: true,
-            drawDays: [2, 5], // 週二、週五
+            drawDays: [2, 5],
             sourceKey: 'Lotto649',
             desc: "每週二、五開獎。49 選 6，財富自由的入場券。",
             subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-yellow-500">🌕</span> 大樂透玩法規則
+                        <span class="text-yellow-500">🌕</span> 大樂透獎金結構
                     </h5>
-                    <p class="text-xs text-stone-500 bg-stone-50 p-2 rounded border border-stone-200">
-                        從 01~49 中任選 6 個號碼。開獎時開出 6 個號碼 + 1 個特別號。
-                        只要對中 3 個號碼以上（含）即獲獎。
-                    </p>
-
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs">
-                        <div class="grid grid-cols-10 bg-stone-100 font-bold text-stone-700 py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2">獎項</div>
-                            <div class="col-span-6">中獎條件 (紅色為特別號)</div>
+                    
+                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
+                        <!-- 表頭 -->
+                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
+                            <div class="col-span-2 text-center">獎項</div>
+                            <div class="col-span-8">中獎條件</div>
                             <div class="col-span-2 text-right">獎金</div>
                         </div>
                         
-                        <!-- 頭獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-rose-600">頭獎</div>
-                            <div class="col-span-6 flex gap-1">
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
+                        <!-- 列表內容 (字體統一為 text-xs text-stone-500) -->
+                        <div class="divide-y divide-stone-100 bg-white">
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
+                                <div class="col-span-8 text-stone-500">與當期六個獎號完全相同者</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
                             </div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
 
-                        <!-- 貳獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">貳獎</div>
-                            <div class="col-span-6 flex gap-1">
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-rose-500 block"></span>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任五碼＋特別號</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
                             </div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
 
-                        <!-- 參獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">參獎</div>
-                            <div class="col-span-6 flex gap-1">
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任五碼</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
                             </div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
 
-                        <!-- 肆獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">肆獎</div>
-                            <div class="col-span-6 flex gap-1">
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-rose-500 block"></span>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任四碼＋特別號</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
                             </div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
 
-                        <!-- 伍獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">伍獎</div>
-                            <div class="col-span-6">對中任 4 碼</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$2,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">伍獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任四碼</div>
+                                <div class="col-span-2 text-right text-stone-500">$2,000</div>
+                            </div>
 
-                        <!-- 陸獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">陸獎</div>
-                            <div class="col-span-6">對中任 3 碼 + 特別號</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$1,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">陸獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任三碼＋特別號</div>
+                                <div class="col-span-2 text-right text-stone-500">$1,000</div>
+                            </div>
 
-                        <!-- 柒獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">柒獎</div>
-                            <div class="col-span-6">對中任 2 碼 + 特別號</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$400</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">柒獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任兩碼＋特別號</div>
+                                <div class="col-span-2 text-right text-stone-500">$400</div>
+                            </div>
 
-                        <!-- 普獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">普獎</div>
-                            <div class="col-span-6">對中任 3 碼</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$400</div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">普獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之任三碼</div>
+                                <div class="col-span-2 text-right text-stone-500">$400</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="text-[10px] text-stone-400 space-y-1 mt-2">
+                    <div class="text-xs text-stone-500 space-y-1 mt-2">
                         <p>註1：頭獎中獎率約 1/1,398 萬，總中獎率約 1/32。</p>
-                        <p>註2：若伍獎至普獎中獎人數過多，獎金將改為均分。</p>
+                        <p>註2：若伍獎至普獎中獎人數過多，伍獎至普獎獎金將改為均分，致使實際單注獎金低於獎金表所列之金額。</p>
                     </div>
                 </div>
             `
@@ -128,101 +94,89 @@ export const GAME_CONFIG = {
             range: 38,
             count: 6,
             zone2: 8,
-            drawDays: [1, 4], // 週一、週四
+            drawDays: [1, 4],
             sourceKey: 'SuperLotto638',
             desc: "每週一、四開獎。高額頭獎的首選，雙區制霸。",
             subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-rose-500">⚡</span> 威力彩玩法規則
+                        <span class="text-rose-500">⚡</span> 威力彩獎金結構
                     </h5>
-                    <p class="text-xs text-stone-500 bg-stone-50 p-2 rounded border border-stone-200">
-                        第1區 (01~38) 選 6 號，第2區 (01~08) 選 1 號。
-                        第一區對中 1 碼 + 第二區對中，即為中獎 (普獎)。
-                    </p>
 
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs">
-                        <div class="grid grid-cols-10 bg-stone-100 font-bold text-stone-700 py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2">獎項</div>
-                            <div class="col-span-6">中獎條件 (●第1區 + ★第2區)</div>
+                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
+                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
+                            <div class="col-span-2 text-center">獎項</div>
+                            <div class="col-span-8">中獎條件</div>
                             <div class="col-span-2 text-right">獎金</div>
                         </div>
                         
-                        <!-- 頭獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-rose-600">頭獎</div>
-                            <div class="col-span-6">●●●●●● + ★</div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
+                        <div class="divide-y divide-stone-100 bg-white">
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
+                                <div class="col-span-8 text-stone-500">第1區六個獎號全中，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
+                            </div>
 
-                        <!-- 貳獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">貳獎</div>
-                            <div class="col-span-6">●●●●●●</div>
-                            <div class="col-span-2 text-right font-mono text-stone-400">均分</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
+                                <div class="col-span-8 text-stone-500">第1區六個獎號全中，但第2區未對中</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
+                            </div>
 
-                        <!-- 參獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">參獎</div>
-                            <div class="col-span-6">●●●●● + ★</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$150,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任五個獎號，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">$150,000</div>
+                            </div>
 
-                        <!-- 肆獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">肆獎</div>
-                            <div class="col-span-6">●●●●●</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$20,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任五個獎號，但第2區未對中</div>
+                                <div class="col-span-2 text-right text-stone-500">$20,000</div>
+                            </div>
 
-                        <!-- 伍獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">伍獎</div>
-                            <div class="col-span-6">●●●● + ★</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$4,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">伍獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任四個獎號，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">$4,000</div>
+                            </div>
 
-                        <!-- 陸獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">陸獎</div>
-                            <div class="col-span-6">●●●●</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$800</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">陸獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任四個獎號，但第2區未對中</div>
+                                <div class="col-span-2 text-right text-stone-500">$800</div>
+                            </div>
 
-                        <!-- 柒獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">柒獎</div>
-                            <div class="col-span-6">●●● + ★</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$400</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">柒獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任三個獎號，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">$400</div>
+                            </div>
 
-                        <!-- 捌獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">捌獎</div>
-                            <div class="col-span-6">●● + ★</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$200</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">捌獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任二個獎號，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">$200</div>
+                            </div>
 
-                        <!-- 玖獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">玖獎</div>
-                            <div class="col-span-6">●●●</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$100</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">玖獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任三個獎號，但第2區未對中</div>
+                                <div class="col-span-2 text-right text-stone-500">$100</div>
+                            </div>
 
-                        <!-- 普獎 -->
-                        <div class="grid grid-cols-10 py-2 px-3 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">普獎</div>
-                            <div class="col-span-6">● + ★</div>
-                            <div class="col-span-2 text-right font-mono font-bold text-amber-600">$100</div>
+                            <div class="grid grid-cols-12 py-2 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">普獎</div>
+                                <div class="col-span-8 text-stone-500">第1區對中任一個獎號，且第2區亦對中獎號</div>
+                                <div class="col-span-2 text-right text-stone-500">$100</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="text-[10px] text-stone-400 space-y-1 mt-2">
+                    <div class="text-xs text-stone-500 space-y-1 mt-2">
                         <p>註1：頭獎中獎率約 1/2,209 萬，總中獎率約 1/9。</p>
-                        <p>註2：獎金可能因中獎人數過多而均分，實際金額以台彩公告為準。</p>
+                        <p>註2：若參獎至普獎中獎人數過多，參獎至普獎獎金將改為均分，致使實際單注獎金低於獎金表所列之金額。</p>
                     </div>
                 </div>
             `
@@ -232,56 +186,52 @@ export const GAME_CONFIG = {
             range: 39,
             count: 5,
             special: false,
-            drawDays: [1, 2, 3, 4, 5, 6], // 週一至週六
+            drawDays: [1, 2, 3, 4, 5, 6],
             sourceKey: 'Daily539',
             desc: "週一至週六開獎。小賭怡情，中獎機率高。",
             subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg flex items-center gap-2">
-                        <span class="text-emerald-500">☘️</span> 今彩 539 玩法規則
+                        <span class="text-emerald-500">☘️</span> 今彩 539 獎金結構
                     </h5>
-                    <p class="text-xs text-stone-500 bg-stone-50 p-2 rounded border border-stone-200">
-                        從 01~39 中任選 5 個號碼。任 2 碼對中即獲獎。
-                        頭獎中獎率約 1/58 萬，總中獎率約 1/9。
-                    </p>
 
-                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs">
-                        <div class="grid grid-cols-10 bg-stone-100 font-bold text-stone-700 py-2 px-3 border-b border-stone-200">
-                            <div class="col-span-2">獎項</div>
-                            <div class="col-span-5">中獎條件</div>
-                            <div class="col-span-3 text-right">獎金</div>
+                    <div class="border border-stone-200 rounded-xl overflow-hidden text-xs shadow-sm">
+                        <div class="grid grid-cols-12 bg-stone-100 text-stone-700 font-bold py-2 px-3 border-b border-stone-200">
+                            <div class="col-span-2 text-center">獎項</div>
+                            <div class="col-span-8">中獎條件</div>
+                            <div class="col-span-2 text-right">獎金</div>
                         </div>
                         
-                        <div class="grid grid-cols-10 py-3 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-emerald-600">頭獎</div>
-                            <div class="col-span-5 flex gap-1">
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
-                                <span class="w-4 h-4 rounded-full bg-stone-800 block"></span>
+                        <div class="divide-y divide-stone-100 bg-white">
+                            <div class="grid grid-cols-12 py-3 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">頭獎</div>
+                                <div class="col-span-8 text-stone-500">與當期五個中獎號碼完全相同者</div>
+                                <div class="col-span-2 text-right text-stone-500">均分</div>
                             </div>
-                            <div class="col-span-3 text-right font-mono font-bold text-emerald-600">$8,000,000</div>
-                        </div>
 
-                        <div class="grid grid-cols-10 py-3 px-3 border-b border-stone-100 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">貳獎</div>
-                            <div class="col-span-5">對中任 4 碼</div>
-                            <div class="col-span-3 text-right font-mono font-bold text-stone-500">$20,000</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-3 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">貳獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任四碼</div>
+                                <div class="col-span-2 text-right text-stone-500">$20,000</div>
+                            </div>
 
-                        <div class="grid grid-cols-10 py-3 px-3 border-b border-stone-100 items-center">
-                            <div class="col-span-2 font-bold text-stone-600">參獎</div>
-                            <div class="col-span-5">對中任 3 碼</div>
-                            <div class="col-span-3 text-right font-mono font-bold text-stone-500">$300</div>
-                        </div>
+                            <div class="grid grid-cols-12 py-3 px-3 items-center">
+                                <div class="col-span-2 text-center font-bold text-stone-600">參獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任三碼</div>
+                                <div class="col-span-2 text-right text-stone-500">$300</div>
+                            </div>
 
-                        <div class="grid grid-cols-10 py-3 px-3 items-center bg-stone-50/50">
-                            <div class="col-span-2 font-bold text-stone-600">肆獎</div>
-                            <div class="col-span-5">對中任 2 碼</div>
-                            <div class="col-span-3 text-right font-mono font-bold text-stone-500">$50</div>
+                            <div class="grid grid-cols-12 py-3 px-3 items-center bg-stone-50/50">
+                                <div class="col-span-2 text-center font-bold text-stone-600">肆獎</div>
+                                <div class="col-span-8 text-stone-500">對中當期獎號之其中任二碼</div>
+                                <div class="col-span-2 text-right text-stone-500">$50</div>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="text-xs text-stone-500 space-y-1 mt-2">
+                        <p>註：頭獎中獎率約 1/58 萬，總中獎率約 1/9。</p>
                     </div>
                 </div>
             `
@@ -362,7 +312,7 @@ export const GAME_CONFIG = {
     },
     ORDER: ['大樂透', '威力彩', '今彩539', '3星彩', '4星彩'],
     
-    // 學派說明 (保持不變)
+    // 學派說明 (維持不變)
     SCHOOLS: {
         balance: { 
             color: "border-school-balance", 
