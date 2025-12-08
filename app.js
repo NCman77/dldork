@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V26.0：學派分流完成（平衡 / 統計 / 關聯 / AI / 五行），不做 fallback
+ * V27.0：適配 V4.2 工業級關聯引擎 (支援策略傳遞與 Metadata 顯示)
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -11,20 +11,20 @@ import {
     saveToCache, saveToFirestore, loadFromFirestore, loadFromCache
 } from './utils.js';
 
-// 學派演算法（統計 / 關聯 / 平衡 / AI）
+// 學派演算法
 import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
 import { algoBalance } from './algo/algo_balance.js';
 import { algoAI } from './algo/algo_ai.js';
 import { algoSmartWheel } from './algo/algo_smartwheel.js';
 
-// 五行學派子系統（紫微 / 姓名 / 星盤 / 五行生肖）
+// 五行學派子系統
 import { applyZiweiLogic } from './algo/algo_Ziwei.js';
 import { applyNameLogic } from './algo/algo_name.js';
 import { applyStarsignLogic } from './algo/algo_starsign.js';
 import { applyWuxingLogic } from './algo/algo_wuxing.js';
 
-// 動態產生 ZIP URL (只到當下年份)
+// 動態產生 ZIP URL
 const currentYear = new Date().getFullYear();
 const zipUrls = [];
 for (let y = 2021; y <= currentYear; y++) {
@@ -41,9 +41,10 @@ const App = {
         rawData: {}, rawJackpots: {},
         currentGame: "", currentSubMode: null,
         currentSchool: "balance",
+        currentPatternStrategy: "default", // V4.2 新增：關聯學派策略
         filterPeriod: "", filterYear: "", filterMonth: "",
         profiles: [], user: null, db: null, apiKey: "",
-        drawOrder: 'size' // 預設用大小順序顯示
+        drawOrder: 'size' 
     },
 
     init() {
@@ -75,7 +76,7 @@ const App = {
             });
     },
 
-    // ================= Firebase / Profile / API Key 相關 =================
+    // ================= Firebase / Profile / API Key 相關 (保持不變) =================
     async initFirebase() {
         if (typeof window.firebaseModules === 'undefined') {
             this.loadProfilesLocal();
@@ -290,23 +291,17 @@ const App = {
         }
     },
 
-    // ================ AI Fortune（流年解讀） ================
+    // ================ AI Fortune ================
     async generateAIFortune() {
         const pid = document.getElementById('profile-select').value;
         if (!pid || !this.state.apiKey) return alert("請選主角並設定Key");
         document.getElementById('ai-loading').classList.remove('hidden');
         document.getElementById('btn-calc-ai').disabled = true;
         const p = this.state.profiles.find(x => x.id == pid);
-        const currentYear = new Date().getFullYear();
-        const ganZhi = getGanZhi(currentYear);
-        const useName = document.getElementById('check-name')
-            ? document.getElementById('check-name').checked
-            : false;
+        const useName = document.getElementById('check-name')?.checked;
 
         let prompt = `你現在是資深的國學易經術數領域專家...`;
-        if (useName) {
-            prompt += `【姓名學特別指令】...`;
-        }
+        if (useName) prompt += `【姓名學特別指令】...`;
         prompt += `請務必回傳純 JSON 格式...`;
 
         try {
@@ -320,9 +315,7 @@ const App = {
             );
             const d = await res.json();
             p.fortune2025 = JSON.parse(
-                d.candidates[0].content.parts[0].text
-                    .replace(/``````/g, '')
-                    .trim()
+                d.candidates[0].content.parts[0].text.replace(/``````/g, '').trim()
             );
             this.saveProfiles();
             this.onProfileChange();
@@ -349,11 +342,7 @@ const App = {
             d.classList.remove('hidden');
             let html = `<div class="font-bold mb-1">📅 流年運勢:</div><p>${p.fortune2025.year_analysis}</p>`;
             if (p.fortune2025.name_analysis) {
-                html += `
-                  <div class="mt-2 pt-2 border-t border-pink-100">
-                    <div class="font-bold mb-1">✍️ 姓名靈動:</div>
-                    <p class="text-[10px]">${p.fortune2025.name_analysis.rationale}</p>
-                  </div>`;
+                html += `<div class="mt-2 pt-2 border-t border-pink-100"><div class="font-bold mb-1">✍️ 姓名靈動:</div><p class="text-[10px]">${p.fortune2025.name_analysis.rationale}</p></div>`;
             }
             d.innerHTML = html;
             document.getElementById('btn-calc-ai').innerText = "🔄 重新批算";
@@ -375,12 +364,10 @@ const App = {
         }
     },
 
-    // ================= 核心資料載入流程 =================
+    // ================= 核心資料載入流程 (保持不變) =================
     async initFetch() {
         this.setSystemStatus('loading');
-
         try {
-            // Phase 0：Firebase 快取
             if (this.state.db) {
                 try {
                     const fbData = await loadFromFirestore(this.state.db);
@@ -388,12 +375,9 @@ const App = {
                         const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
                         this.processAndRender(quickData);
                     }
-                } catch (e) {
-                    console.warn("Firebase 快取讀取失敗，改用完整載入", e);
-                }
+                } catch (e) { console.warn("Firebase 快取讀取失敗", e); }
             }
 
-            // Phase 1：靜態 JSON + ZIP + Local Cache + Firestore
             const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
             let baseData = {};
             if (jsonRes.ok) {
@@ -401,60 +385,31 @@ const App = {
                 baseData = jsonData.games || jsonData;
                 this.state.rawJackpots = jsonData.jackpots || {};
                 if (jsonData.last_updated) {
-                    document.getElementById('last-update-time').innerText =
-                        jsonData.last_updated.split(' ')[0];
+                    document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
                 }
             }
 
             const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
-                try {
-                    return await fetchAndParseZip(url);
-                } catch (e) {
-                    console.warn(`ZIP 載入失敗: ${url}`, e);
-                    return {};
-                }
+                try { return await fetchAndParseZip(url); } catch (e) { return {}; }
             });
             const zipResults = await Promise.all(zipPromises);
-
             const localCache = loadFromCache()?.data || {};
             let firestoreData = {};
             if (this.state.db) {
                 firestoreData = await loadFromFirestore(this.state.db);
             }
 
-            const initialData = mergeLotteryData(
-                { games: baseData },
-                zipResults,
-                localCache,
-                firestoreData
-            );
+            const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache, firestoreData);
             this.processAndRender(initialData);
 
-            // Phase 2：Live API
             const liveData = await fetchLiveLotteryData();
-
             if (liveData && Object.keys(liveData).length > 0) {
-                const finalData = mergeLotteryData(
-                    { games: baseData },
-                    zipResults,
-                    liveData,
-                    firestoreData
-                );
+                const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData, firestoreData);
                 this.processAndRender(finalData);
-                if (this.state.currentGame) {
-                    this.updateDashboard();
-                }
-                try {
-                    saveToCache(liveData);
-                } catch (e) {
-                    console.warn("Local Cache 寫入失敗:", e);
-                }
-                if (this.state.db) {
-                    saveToFirestore(this.state.db, liveData)
-                        .catch(e => console.warn("Firestore 寫入失敗:", e));
-                }
+                if (this.state.currentGame) this.updateDashboard();
+                try { saveToCache(liveData); } catch (e) {}
+                if (this.state.db) { saveToFirestore(this.state.db, liveData).catch(e => {}); }
             }
-
             this.checkSystemStatus();
         } catch (e) {
             console.error("Critical Data Error:", e);
@@ -476,17 +431,11 @@ const App = {
         const text = document.getElementById('system-status-text');
         const icon = document.getElementById('system-status-icon');
         if (status === 'loading') {
-            text.innerText = "連線更新中...";
-            text.className = "text-yellow-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
+            text.innerText = "連線更新中..."; text.className = "text-yellow-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
         } else if (status === 'success') {
-            text.innerText = "系統連線正常";
-            text.className = "text-green-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-green-500";
+            text.innerText = "系統連線正常"; text.className = "text-green-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-green-500";
         } else {
-            text.innerText = `資料過期 ${dateStr ? `(${dateStr})` : ""}`;
-            text.className = "text-red-600 font-bold";
-            icon.className = "w-2 h-2 rounded-full bg-red-500";
+            text.innerText = `資料過期 ${dateStr}`; text.className = "text-red-600 font-bold"; icon.className = "w-2 h-2 rounded-full bg-red-500";
         }
     },
 
@@ -500,27 +449,17 @@ const App = {
         for (let game in this.state.rawData) {
             if (this.state.rawData[game].length > 0) {
                 const lastDate = this.state.rawData[game][0].date;
-                if (!latestDateObj || lastDate > latestDateObj) {
-                    latestDateObj = lastDate;
-                }
-                if (lastDate >= threeDaysAgo) {
-                    hasLatestData = true;
-                }
+                if (!latestDateObj || lastDate > latestDateObj) latestDateObj = lastDate;
+                if (lastDate >= threeDaysAgo) hasLatestData = true;
             }
         }
-
-        const dataCount = Object.values(this.state.rawData)
-            .reduce((acc, curr) => acc + curr.length, 0);
+        const dataCount = Object.values(this.state.rawData).reduce((acc, curr) => acc + curr.length, 0);
         const dateStr = latestDateObj ? latestDateObj.toLocaleDateString() : "無資料";
-
-        if (dataCount === 0 || !hasLatestData) {
-            this.setSystemStatus('error', dateStr);
-        } else {
-            this.setSystemStatus('success');
-        }
+        if (dataCount === 0 || !hasLatestData) this.setSystemStatus('error', dateStr);
+        else this.setSystemStatus('success');
     },
 
-    // ================== UI：遊戲 & 歷史 & 學派 ==================
+    // ================== UI 控制 ==================
     renderGameButtons() {
         const container = document.getElementById('game-btn-container');
         container.innerHTML = '';
@@ -532,8 +471,7 @@ const App = {
                 this.state.currentGame = gameName;
                 this.state.currentSubMode = null;
                 this.resetFilter();
-                document.querySelectorAll('.game-tab-btn')
-                    .forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.game-tab-btn').forEach(el => el.classList.remove('active'));
                 btn.classList.add('active');
                 this.updateDashboard();
             };
@@ -551,26 +489,18 @@ const App = {
         const gameDef = GAME_CONFIG.GAMES[gameName];
         let data = this.state.rawData[gameName] || [];
 
-        if (this.state.filterPeriod) {
-            data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
-        }
-        if (this.state.filterYear) {
-            data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
-        }
-        if (this.state.filterMonth) {
-            data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
-        }
+        if (this.state.filterPeriod) data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
+        if (this.state.filterYear) data = data.filter(item => item.date.getFullYear() === parseInt(this.state.filterYear));
+        if (this.state.filterMonth) data = data.filter(item => (item.date.getMonth() + 1) === parseInt(this.state.filterMonth));
 
         document.getElementById('current-game-title').innerText = gameName;
         document.getElementById('total-count').innerText = data.length;
-        document.getElementById('latest-period').innerText =
-            data.length > 0 ? `${data[0].period}期` : "--期";
+        document.getElementById('latest-period').innerText = data.length > 0 ? `${data[0].period}期` : "--期";
 
         const jackpotContainer = document.getElementById('jackpot-container');
         if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) {
             jackpotContainer.classList.remove('hidden');
-            document.getElementById('jackpot-amount').innerText =
-                `$${this.state.rawJackpots[gameName]}`;
+            document.getElementById('jackpot-amount').innerText = `$${this.state.rawJackpots[gameName]}`;
         } else {
             jackpotContainer.classList.add('hidden');
         }
@@ -579,9 +509,7 @@ const App = {
         this.renderHotStats('stat-year', data);
         this.renderHotStats('stat-month', data.slice(0, 30));
         this.renderHotStats('stat-recent', data.slice(0, 10));
-        document.getElementById('no-result-msg')
-            .classList.toggle('hidden', data.length > 0);
-
+        document.getElementById('no-result-msg').classList.toggle('hidden', data.length > 0);
         this.renderDrawOrderControls();
         this.renderHistoryList(data.slice(0, 5));
     },
@@ -595,24 +523,7 @@ const App = {
             <button onclick="app.setDrawOrder('appear')" class="order-btn ${this.state.drawOrder === 'appear' ? 'active' : ''}">開出順序</button>
         `;
         if (!document.getElementById('order-btn-style')) {
-            document.head.insertAdjacentHTML('beforeend', `
-                <style id="order-btn-style">
-                    .order-btn {
-                        padding: 2px 8px;
-                        font-size: 15px;
-                        border-radius: 9999px;
-                        border: 1px solid #d6d3d1;
-                        color: #57534e;
-                        transition: all 150ms;
-                    }
-                    .order-btn.active {
-                        background-color: #10b981;
-                        border-color: #10b981;
-                        color: white;
-                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-                    }
-                </style>
-            `);
+            document.head.insertAdjacentHTML('beforeend', `<style id="order-btn-style">.order-btn { padding: 2px 8px; font-size: 15px; border-radius: 9999px; border: 1px solid #d6d3d1; color: #57534e; transition: all 150ms; } .order-btn.active { background-color: #10b981; border-color: #10b981; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }</style>`);
         }
     },
 
@@ -631,17 +542,14 @@ const App = {
         if (gameDef.subModes) {
             area.classList.remove('hidden');
             container.innerHTML = '';
-            if (!this.state.currentSubMode) {
-                this.state.currentSubMode = gameDef.subModes[0].id;
-            }
+            if (!this.state.currentSubMode) this.state.currentSubMode = gameDef.subModes[0].id;
             gameDef.subModes.forEach(mode => {
                 const tab = document.createElement('div');
                 tab.className = `submode-tab ${this.state.currentSubMode === mode.id ? 'active' : ''}`;
                 tab.innerText = mode.name;
                 tab.onclick = () => {
                     this.state.currentSubMode = mode.id;
-                    document.querySelectorAll('.submode-tab')
-                        .forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                 };
                 container.appendChild(tab);
@@ -654,8 +562,7 @@ const App = {
     },
 
     toggleRules() {
-        document.getElementById('game-rules-content')
-            .classList.toggle('hidden');
+        document.getElementById('game-rules-content').classList.toggle('hidden');
     },
 
     renderHistoryList(data) {
@@ -664,19 +571,11 @@ const App = {
         data.forEach(item => {
             let numsHtml = "";
             const gameDef = GAME_CONFIG.GAMES[this.state.currentGame];
-
-            const sourceNumbers =
-                this.state.drawOrder === 'size' &&
-                item.numbers_size && item.numbers_size.length > 0
-                    ? item.numbers_size
-                    : item.numbers || [];
-
+            const sourceNumbers = this.state.drawOrder === 'size' && item.numbers_size && item.numbers_size.length > 0 ? item.numbers_size : item.numbers || [];
             const numbers = sourceNumbers.filter(n => typeof n === 'number');
 
             if (gameDef.type === 'digit') {
-                numsHtml = numbers
-                    .map(n => `<span class="ball-sm">${n}</span>`)
-                    .join('');
+                numsHtml = numbers.map(n => `<span class="ball-sm">${n}</span>`).join('');
             } else {
                 const len = numbers.length;
                 let normal = [], special = null;
@@ -686,49 +585,22 @@ const App = {
                 } else {
                     normal = numbers;
                 }
-                numsHtml = normal
-                    .filter(n => typeof n === 'number')
-                    .map(n => `<span class="ball-sm">${n}</span>`)
-                    .join('');
+                numsHtml = normal.filter(n => typeof n === 'number').map(n => `<span class="ball-sm">${n}</span>`).join('');
                 if (special !== null && typeof special === 'number') {
                     numsHtml += `<span class="ball-sm ball-special ml-2 font-black border-none">${special}</span>`;
                 }
             }
-
-            list.innerHTML += `
-              <tr class="table-row">
-                <td class="px-5 py-3 border-b border-stone-100">
-                  <div class="font-bold text-stone-700">No. ${item.period}</div>
-                  <div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div>
-                </td>
-                <td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">
-                  ${numsHtml}
-                </td>
-              </tr>`;
+            list.innerHTML += `<tr class="table-row"><td class="px-5 py-3 border-b border-stone-100"><div class="font-bold text-stone-700">No. ${item.period}</div><div class="text-[10px] text-stone-400">${item.date.toLocaleDateString()}</div></td><td class="px-5 py-3 border-b border-stone-100 flex flex-wrap gap-1">${numsHtml}</td></tr>`;
         });
     },
 
     renderHotStats(elId, dataset) {
         const el = document.getElementById(elId);
-        if (!dataset || dataset.length === 0) {
-            el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>';
-            return;
-        }
+        if (!dataset || dataset.length === 0) { el.innerHTML = '<span class="text-stone-300 text-[10px]">無數據</span>'; return; }
         const freq = {};
-        dataset.forEach(d =>
-            d.numbers.forEach(n => {
-                freq[n] = (freq[n] || 0) + 1;
-            })
-        );
-        const sorted = Object.entries(freq)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
-        el.innerHTML = sorted.map(([n, c]) => `
-            <div class="flex flex-col items-center">
-              <div class="ball ball-hot mb-1 scale-75">${n}</div>
-              <div class="text-sm text-stone-600 font-black">${c}</div>
-            </div>
-        `).join('');
+        dataset.forEach(d => d.numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1; }));
+        const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        el.innerHTML = sorted.map(([n, c]) => `<div class="flex flex-col items-center"><div class="ball ball-hot mb-1 scale-75">${n}</div><div class="text-sm text-stone-600 font-black">${c}</div></div>`).join('');
     },
 
     selectSchool(school) {
@@ -736,22 +608,25 @@ const App = {
         const info = GAME_CONFIG.SCHOOLS[school];
         document.querySelectorAll('.school-card').forEach(el => {
             el.classList.remove('active');
-            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => {
-                if (s.color) el.classList.remove(s.color);
-            });
+            Object.values(GAME_CONFIG.SCHOOLS).forEach(s => { if (s.color) el.classList.remove(s.color); });
         });
         const activeCard = document.querySelector(`.school-${school}`);
         if (activeCard) {
-            activeCard.classList.add('active');
-            activeCard.classList.add(info.color);
+            activeCard.classList.add('active', info.color);
         }
         const container = document.getElementById('school-description');
-        container.className =
-            `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`;
-        container.innerHTML =
-            `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`;
-        document.getElementById('wuxing-options')
-            .classList.toggle('hidden', school !== 'wuxing');
+        container.className = `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`;
+        container.innerHTML = `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`;
+        
+        // 顯示/隱藏各學派專屬面板
+        document.getElementById('wuxing-options').classList.toggle('hidden', school !== 'wuxing');
+        document.getElementById('pattern-options').classList.toggle('hidden', school !== 'pattern');
+    },
+
+    // V4.2 新增：監聽關聯學派策略切換
+    onPatternStrategyChange() {
+        const select = document.getElementById('pattern-strategy-select');
+        this.state.currentPatternStrategy = select.value;
     },
 
     // ================= 學派入口：runPrediction =================
@@ -773,54 +648,44 @@ const App = {
 
         const count  = parseInt(countVal, 10);
         const school = this.state.currentSchool;
-        const params = { data, gameDef, subModeId: this.state.currentSubMode };
+        
+        // 傳遞參數：包含 V4.2 所需的 strategy
+        const params = { 
+            data, 
+            gameDef, 
+            subModeId: this.state.currentSubMode,
+            strategy: this.state.currentPatternStrategy // 傳入當前選擇的策略
+        };
 
         for (let i = 0; i < count; i++) {
             let result = null;
 
             switch (school) {
-                case 'balance':
-                    result = algoBalance(params);
-                    break;
-                case 'stat':
-                    result = algoStat(params);
-                    break;
-                case 'pattern':
-                    result = algoPattern(params);
-                    break;
-                case 'ai':
-                    result = algoAI(params);
-                    break;
-                case 'wuxing':
-                    result = this.algoWuxing(params);
-                    break;
+                case 'balance': result = algoBalance(params); break;
+                case 'stat': result = algoStat(params); break;
+                case 'pattern': result = algoPattern(params); break;
+                case 'ai': result = algoAI(params); break;
+                case 'wuxing': result = this.algoWuxing(params); break;
             }
 
             if (result) {
-                // 如果你暫時不想要 fallback，可以直接刪掉這段 monteCarlo 判斷
                 if (!monteCarloSim(result.numbers, gameDef)) {
-                    // 例如這裡原本會 fallback 到統計：
-                    // result = algoStat(params);
+                    // fallback logic if needed
                 }
                 this.renderRow(result, i + 1);
             }
         }
     },
 
-    // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
         const wuxingWeights = {};
         const wuxingTagMap  = {};
         const min = (gameDef.type === 'digit' ? 0 : 1);
-
         for (let k = min; k <= gameDef.range; k++) {
-            wuxingWeights[k] = 10;
-            wuxingTagMap[k]  = "基礎運數";
+            wuxingWeights[k] = 10; wuxingTagMap[k]  = "基礎運數";
         }
-
-        const pid     = document.getElementById('profile-select').value;
+        const pid = document.getElementById('profile-select').value;
         const profile = this.state.profiles.find(p => p.id == pid);
-
         const useZiwei  = document.getElementById('check-purple')?.checked;
         const useAstro  = document.getElementById('check-astro')?.checked;
         const useName   = document.getElementById('check-name')?.checked;
@@ -832,46 +697,25 @@ const App = {
         if (useZodiac) applyWuxingLogic(wuxingWeights, wuxingTagMap, gameDef, profile);
 
         const wuxingContext = { tagMap: wuxingTagMap };
-
-        const pickZone1 = calculateZone(
-            [], gameDef.range, gameDef.count,
-            false, 'wuxing',
-            [], wuxingWeights, null, wuxingContext
-        );
-
+        const pickZone1 = calculateZone([], gameDef.range, gameDef.count, false, 'wuxing', [], wuxingWeights, null, wuxingContext);
         let pickZone2 = [];
         if (gameDef.type === 'power') {
-            pickZone2 = calculateZone(
-                [], gameDef.zone2, 1,
-                true, 'wuxing',
-                [], wuxingWeights, null, wuxingContext
-            );
+            pickZone2 = calculateZone([], gameDef.zone2, 1, true, 'wuxing', [], wuxingWeights, null, wuxingContext);
         }
+        const tags = [...pickZone1, ...pickZone2].map(o => o.tag);
+        const dominant = tags.sort((a, b) => tags.filter(v => v === a).length - tags.filter(v => v === b).length).pop();
 
-        const tags     = [...pickZone1, ...pickZone2].map(o => o.tag);
-        const dominant = tags.sort((a, b) =>
-            tags.filter(v => v === a).length - tags.filter(v => v === b).length
-        ).pop();
-
-        return {
-            numbers: [...pickZone1, ...pickZone2],
-            groupReason: `💡 流年格局：[${dominant}] 主導。`
-        };
+        return { numbers: [...pickZone1, ...pickZone2], groupReason: `💡 流年格局：[${dominant}] 主導。` };
     },
 
     algoSmartWheel(data, gameDef) {
         const results = algoSmartWheel(data, gameDef);
         results.forEach((res, idx) =>
-            this.renderRow(
-                {
-                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                    groupReason: res.groupReason
-                },
-                idx + 1
-            )
+            this.renderRow({ numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })), groupReason: res.groupReason }, idx + 1)
         );
     },
 
+    // V4.2 升級：支援顯示 Metadata
     renderRow(resultObj, index) {
         const container = document.getElementById('prediction-output');
         const colors = {
@@ -887,27 +731,56 @@ const App = {
           <div class="flex flex-col gap-2 p-4 bg-white rounded-xl border border-stone-200 shadow-sm animate-fade-in hover:shadow-md transition">
             <div class="flex items-center gap-3">
               <span class="text-[10px] font-black text-stone-300 tracking-widest">SET ${index}</span>
-              <div class="flex flex-wrap gap-2">
-        `;
+              <div class="flex flex-wrap gap-2">`;
+        
         resultObj.numbers.forEach(item => {
             html += `
               <div class="flex flex-col items-center">
                 <div class="ball-sm ${colorClass}" style="box-shadow: none;">${item.val}</div>
                 ${item.tag ? `<div class="reason-tag">${item.tag}</div>` : ''}
-              </div>
-            `;
+              </div>`;
         });
-        html += `
-              </div>
-            </div>
-        `;
+        
+        html += `</div></div>`;
+        
+        // 原因標籤
         if (resultObj.groupReason) {
             html += `
               <div class="text-[10px] text-stone-500 font-medium bg-stone-50 px-2 py-1.5 rounded border border-stone-100 flex items-center gap-1">
                 <span class="text-sm">💡</span> ${resultObj.groupReason}
-              </div>
-            `;
+              </div>`;
         }
+
+        // ✨ V4.2 升級：顯示 Metadata (透明度資訊)
+        if (resultObj.metadata) {
+            const meta = resultObj.metadata;
+            let metaHtml = `<div class="metadata-box">`;
+            
+            // 1. 資料量
+            if (meta.dataSize) metaHtml += `<span class="meta-item"><span class="meta-icon">📚</span>${meta.dataSize}期</span>`;
+            
+            // 2. 配額資訊 (拖/鄰/尾)
+            if (meta.allocation) {
+                const { drag, neighbor, tail } = meta.allocation;
+                metaHtml += `<span class="meta-item"><span class="meta-icon">⚙️</span>${drag}/${neighbor}/${tail}</span>`;
+            }
+            
+            // 3. 策略名稱
+            if (meta.strategy) {
+                const stratName = 
+                    meta.strategy === 'aggressive' ? '激進' :
+                    meta.strategy === 'conservative' ? '避險' :
+                    meta.strategy === 'balanced' ? '分散' : '綜合';
+                metaHtml += `<span class="meta-item"><span class="meta-icon">🎯</span>${stratName}</span>`;
+            }
+
+            // 4. 版本號
+            if (meta.version) metaHtml += `<span class="meta-item text-purple-300">v${meta.version}</span>`;
+            
+            metaHtml += `</div>`;
+            html += metaHtml;
+        }
+
         html += `</div>`;
         container.innerHTML += html;
     },
