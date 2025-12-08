@@ -1,274 +1,574 @@
 /**
  * algo_pattern.js
- * 關聯學派：基於拖牌分析、鄰號效應與版路預測的選號邏輯（100分完美版）
- * 
- * 支援玩法：
+ * 關聯學派：工業級統計分析版 V4.2 (The Perfection)
+ * * 支援玩法：
  * - 組合型：大樂透 (49選6) / 威力彩 (38選6+8選1) / 今彩539 (39選5)
  * - 數字型：3星彩 (0-9選3) / 4星彩 (0-9選4)
- * 
- * 核心功能：
- * 1. 拖牌分析系統 - 300期動態條件機率矩陣(本期→下期關聯)
- * 2. 鄰號效應 - 上期開獎±1號碼優先選取(50%權重)
- * 3. 尾數群聚 - 上期尾數重複率≥2個 → 同尾號碼補選
- * 4. 版路預測 - 歷史關聯模式預測(第二區專用)
- * 5. 數字型位置分析 - 百位/十位/個位獨立關聯性分析
- * 
- * 選號邏輯：
- * 大樂透：上期6碼查拖牌矩陣 → Top3拖牌 → 鄰號補2 → 尾數補1
- * 威力彩：拖牌+鄰號(第一區) → 第二區版路遺漏回補
- * 3星彩：和值10-20專家 + 連莊號 + 冷熱配比(1熱+2溫)
+ * * 核心功能 (V4.2 工業級升級重點)：
+ * 1. 加權拖牌矩陣 (Weighted Drag Map)：
+ * - 引入時間衰退因子 (Decay 0.995)，讓近期數據權重高於遠期。
+ * - 應用 Laplace 平滑處理，防止小樣本機率失真。
+ * * 2. Z-Score 尾數檢定 (Statistical Tail Analysis)：
+ * - 使用標準差與 1.96 (97.5%) 信賴區間檢定。
+ * - 引入 EPSILON 與動態門檻，過濾數據均勻時的假熱號。
+ * * 3. 多策略選號引擎 (Multi-Strategy Engine)：
+ * - 數字型玩法支援戰術切換：
+ * a. default (綜合熱門)：全熱門 + 和值 10-20 優化
+ * b. aggressive (激進趨勢)：純熱門追擊
+ * c. conservative (次熱避險)：選取次熱門號碼避開大眾
+ * d. balanced (分散配置)：熱門 + 冷門 + 熱門 的風險對沖組合
+ * * 4. 工業級防禦架構 (Industrial Defense)：
+ * - 零副作用：實作淺拷貝 (Shallow Copy)，杜絕汙染原始資料。
+ * - 穩定快取：使用預先正規化的 Symbol 鍵作為快取依據。
+ * - 透明度報告：回傳 Metadata (樣本數、信心度、配額分配)。
+ * * 選號邏輯：
+ * [組合型]：加權拖牌(Top3) → 鄰號慣性(補2) → Z-Score熱尾(補1) → (若不足)加權熱號回補
+ * [威力彩]：第一區走上述邏輯 → 第二區採用「頻率 + 遺漏值(Gap)*0.4」加權分析
+ * [3星彩]：依據前端傳入的 strategy 參數切換上述四種戰術
  */
 
-
 const PATTERN_CONFIG = {
+    // 系統設定
+    DEBUG_MODE: false, // ⚠️ 上線時設為 false 以關閉詳細日誌
+
+    // 資料門檻
+    DATA_THRESHOLDS: {
+        combo: { reject: 10, warn: 20, optimal: 50 }, // 組合型
+        digit: { reject: 5, warn: 10, optimal: 30 }   // 數字型
+    },
+    
+    // 統計參數
+    DECAY_FACTOR: 0.995,  // 時間衰退因子
+    Z_SCORE_THRESHOLD: 1.96, // 97.5% 信賴區間
+    SMOOTHING: 1,         // Laplace 平滑參數
+    EPSILON: 1e-9,        // 數學防崩潰
+
+    // 回溯期數
     DRAG_PERIODS: 300,
-    SUM_MIN: 10,
-    SUM_MAX: 20,
-    RECENT_PERIOD: 20,
-    ZONE2_RECENT: 10
+    TAIL_PERIODS: 50,
+    FALLBACK_PERIOD: 50,
+
+    // 策略配額 (Allocation Strategy)
+    ALLOCATION: {
+        LOTTO_49: { drag: 3, neighbor: 2, tail: 1 },
+        POWER_38: { drag: 3, neighbor: 2, tail: 1 },
+        TODAY_39: { drag: 2, neighbor: 2, tail: 1 },
+    }
 };
 
-let patternCache = null;
+// 3星彩策略定義 (明確定義每個位置的排名選擇)
+// picks: [百位排名, 十位排名, 個位排名] (0 = 第1名, 1 = 第2名...)
+const DIGIT3_STRATEGIES = {
+    default: { name: '綜合熱門', picks: [0, 0, 0], sumOpt: true },        // 全熱門 + 和值
+    aggressive: { name: '激進趨勢', picks: [0, 0, 0], sumOpt: false },    // 全熱門 (無修正)
+    conservative: { name: '次熱避險', picks: [1, 1, 1], sumOpt: true },   // 全次熱 (避開大眾)
+    balanced: { name: '分散配置', picks: [0, 2, 0], sumOpt: true }        // 熱+冷+熱 (修正後的平衡邏輯)
+};
 
-export function algoPattern({ data, gameDef, subModeId }) {
-    console.log(`[Pattern] 關聯學派 | ${gameDef.type} | ${data.length}期`);
+// 內部使用的 Symbol 鍵
+const SORT_KEY = Symbol('sortKey');
+
+// 模塊級快取 (LRU 機制)
+const _cacheStore = new Map();
+const MAX_CACHE_SIZE = 10;
+
+// 內部日誌工具
+const log = (...args) => {
+    if (PATTERN_CONFIG.DEBUG_MODE) console.log(...args);
+};
+
+/**
+ * 主入口函數
+ * @param {Object} params
+ * @param {Array} params.data - 歷史資料
+ * @param {Object} params.gameDef - 遊戲定義
+ * @param {String} params.subModeId - 子模式
+ * @param {String} [params.strategy='default'] - 策略名稱
+ */
+export function algoPattern({ data, gameDef, subModeId, strategy = 'default' }) {
+    log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 策略: ${strategy}`);
     
-    if (data.length === 0) return { numbers: [], groupReason: "⚠️ 無資料" };
-    
+    // 1. 資料驗證與正規化 (含淺拷貝)
+    const validation = validateAndNormalizeData(data, gameDef);
+    if (!validation.isValid) {
+        console.error(`[Pattern] ❌ 驗證失敗: ${validation.error}`);
+        return { numbers: [], groupReason: `資料錯誤: ${validation.error}` };
+    }
+    const { data: validData, warning } = validation;
+
+    // 2. 分流處理
+    let result;
     if (gameDef.type === 'lotto' || gameDef.type === 'power') {
-        return handleComboPattern(data, gameDef);
+        result = handleComboPatternV4(validData, gameDef);
     } else if (gameDef.type === 'digit') {
-        return handleDigitPattern(data, gameDef, subModeId);
-    }
-    
-    return { numbers: [], groupReason: "❌ 不支援" };
-}
-
-function handleComboPattern(data, gameDef) {
-    const { range, count, zone2, id } = gameDef;
-    const lastDraw = data[0].numbers.slice(0, 6);
-    
-    console.log(`[Pattern] 上期: ${lastDraw.join(', ')}`);
-    
-    let zone1;
-    if (range === 49) {
-        // ✅ 修正：動態生成拖牌矩陣而非硬編碼
-        const dragMap = generateDragMap(data);
-        zone1 = selectDragAnalysis(lastDraw, range, count, dragMap);
+        result = handleDigitPatternV4(validData, gameDef, strategy);
     } else {
-        zone1 = selectNeighborAnalysis(lastDraw, range, count);
+        return { numbers: [], groupReason: "❌ 不支援的玩法類型" };
     }
-    
-    if (zone2) {
-        // ✅ 修正：zone2 返回單個對象，不是陣列
-        const zone2Num = selectZone2Pattern(data, zone2);
-        return { numbers: [...zone1, zone2Num], groupReason: "🔗 拖牌+版路" };
-    }
-    
-    return { numbers: zone1, groupReason: "🔗 拖牌+鄰號+尾數" };
-}
 
-function handleDigitPattern(data, gameDef, subModeId) {
-    const { range, count, id } = gameDef;
-    
-    if (count === 3 && id.includes('3星')) {
-        // ✅ 修正：完整實現 select3DExpert 邏輯
-        const expert = select3DExpert(data, range);
-        if (expert.length > 0) {
-            return { numbers: expert, groupReason: "🔗 三星專家(和值10-20)" };
-        }
+    // 3. 附加資料量警告與 Metadata 整合
+    if (warning) {
+        result.groupReason = `${warning} | ${result.groupReason}`;
     }
     
-    return { numbers: selectPositionPattern(data, range, count), groupReason: "🔗 位置關聯" };
-}
+    // 確保 metadata 存在 (若子函數未回傳)
+    if (!result.metadata) {
+        result.metadata = {};
+    }
+    result.metadata.dataSize = validData.length;
+    result.metadata.version = "4.2";
 
-// ✅ 修正：完整實現動態拖牌矩陣生成
-function generateDragMap(data) {
-    const dragMap = new Map();
-    
-    if (data.length < 2) {
-        return {};
-    }
-    
-    const lookbackPeriods = Math.min(300, data.length - 1);
-    
-    // 統計過去 300 期內的拖牌統計
-    for (let i = 0; i < lookbackPeriods; i++) {
-        const currentDraw = data[i].numbers.slice(0, 6);      // 本期
-        const nextDraw = data[i + 1]?.numbers.slice(0, 6) || []; // 下期
-        
-        if (!nextDraw || nextDraw.length === 0) continue;
-        
-        // 統計每個本期號碼 → 下期號碼的轉移關係
-        currentDraw.forEach(currentNum => {
-            if (!dragMap.has(currentNum)) {
-                dragMap.set(currentNum, new Map());
-            }
-            
-            const transitions = dragMap.get(currentNum);
-            nextDraw.forEach(nextNum => {
-                transitions.set(nextNum, (transitions.get(nextNum) || 0) + 1);
-            });
-        });
-    }
-    
-    // 轉換為排序的數組格式，只保留 Top 3
-    const result = {};
-    dragMap.forEach((transitions, num) => {
-        const sorted = Array.from(transitions.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([nextNum, count]) => ({
-                num: nextNum,
-                prob: parseFloat(((count / lookbackPeriods) * 100).toFixed(1))
-            }));
-        
-        if (sorted.length > 0) {
-            result[num] = sorted;
-        }
-    });
-    
     return result;
 }
 
-function selectDragAnalysis(lastDraw, range, count, dragMap) {
-    const selected = [], used = new Set();
+// ============================================
+// 1. 資料工程層 (Data Engineering)
+// ============================================
+
+function validateAndNormalizeData(data, gameDef) {
+    if (!Array.isArray(data)) return { isValid: false, error: "非陣列格式" };
+
+    // 1. 過濾並淺拷貝 (Prevent Side Effects)
+    // ✨ V4.2 改進：使用解構賦值建立新物件，避免汙染原始資料
+    const cleaned = [];
+    for (const d of data) {
+        if (d && Array.isArray(d.numbers) && d.numbers.length >= 3) {
+            cleaned.push({ ...d }); 
+        }
+    }
     
-    // 拖牌優先
-    lastDraw.forEach(num => {
-        const drags = dragMap[num];
-        if (drags) {
-            drags.slice(0, 2).forEach(drag => {
-                if (!used.has(drag.num)) {
-                    selected.push({ val: drag.num, tag: `${num}→${drag.num}` });
-                    used.add(drag.num);
-                }
+    // 2. 檢查門檻
+    const thresholds = gameDef.type === 'digit' 
+        ? PATTERN_CONFIG.DATA_THRESHOLDS.digit 
+        : PATTERN_CONFIG.DATA_THRESHOLDS.combo;
+    
+    if (cleaned.length < thresholds.reject) {
+        return { isValid: false, error: `資料不足 (${cleaned.length}筆 < ${thresholds.reject})` };
+    }
+
+    // 3. 預先正規化 (含防呆)
+    const sample = cleaned[0];
+    let getTimeValue = null;
+
+    if (sample.hasOwnProperty('date')) {
+        getTimeValue = (d) => d.date instanceof Date ? d.date.getTime() : new Date(d.date).getTime();
+    } else if (sample.hasOwnProperty('lotteryDate')) {
+        getTimeValue = (d) => new Date(d.lotteryDate).getTime();
+    } else if (sample.hasOwnProperty('period')) {
+        getTimeValue = (d) => typeof d.period === 'string' ? parseFloat(d.period) : Number(d.period);
+    } else if (sample.hasOwnProperty('drawNumber')) {
+        getTimeValue = (d) => typeof d.drawNumber === 'string' ? parseInt(d.drawNumber) : Number(d.drawNumber);
+    } else {
+        return { isValid: false, error: "缺少時序欄位" };
+    }
+
+    try {
+        for (const item of cleaned) {
+            const val = getTimeValue(item);
+            item[SORT_KEY] = isNaN(val) ? 0 : val; // NaN 防呆
+        }
+    } catch (e) {
+        return { isValid: false, error: `正規化失敗: ${e.message}` };
+    }
+
+    // 4. 極速排序
+    cleaned.sort((a, b) => b[SORT_KEY] - a[SORT_KEY]);
+
+    // 5. 生成警告
+    const warning = cleaned.length < thresholds.warn 
+        ? `⚠️ 樣本偏少(${cleaned.length})` 
+        : null;
+
+    return { isValid: true, data: cleaned, warning };
+}
+
+/**
+ * ⚡ 快取機制 (使用 SORT_KEY 確保穩定性)
+ */
+function generateWeightedDragMapCached(data, periods) {
+    // 使用預先計算好的 SORT_KEY (數值)，轉字串作為 ID，絕對穩定
+    const latestTimestamp = data[0][SORT_KEY] || 0;
+    const contentHash = data[0].numbers.slice(0, 6).join('-');
+    const cacheKey = `${latestTimestamp}_${contentHash}_${periods}`;
+
+    // LRU 讀取
+    if (_cacheStore.has(cacheKey)) {
+        const entry = _cacheStore.get(cacheKey);
+        _cacheStore.delete(cacheKey); // Refresh LRU
+        _cacheStore.set(cacheKey, entry);
+        return entry;
+    }
+
+    const map = generateWeightedDragMap(data, periods);
+    
+    // LRU 寫入
+    if (_cacheStore.size >= MAX_CACHE_SIZE) {
+        const firstKey = _cacheStore.keys().next().value;
+        _cacheStore.delete(firstKey);
+    }
+    _cacheStore.set(cacheKey, map);
+    
+    return map;
+}
+
+// ============================================
+// 2. 組合型核心邏輯
+// ============================================
+
+function handleComboPatternV4(data, gameDef) {
+    const { range, count, zone2 } = gameDef;
+    const lastDraw = data[0].numbers.slice(0, 6); 
+    
+    // 1. 動態配額
+    const allocation = calculateDynamicAllocation(data.length, gameDef, count);
+    
+    // 2. 統計分析
+    const dragMap = generateWeightedDragMapCached(data, PATTERN_CONFIG.DRAG_PERIODS);
+    const tailAnalysis = analyzeTailStatsDynamic(data, range, PATTERN_CONFIG.TAIL_PERIODS);
+    const tailClusters = findTailClusters(lastDraw);
+
+    // 3. 選號流程
+    const selected = new Set();
+    const result = [];
+
+    // Phase A: 加權拖牌
+    const dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range);
+    for (const cand of dragCandidates) {
+        if (result.length >= allocation.drag) break;
+        if (!selected.has(cand.num)) {
+            selected.add(cand.num);
+            result.push({ 
+                val: cand.num, 
+                tag: `${cand.from}→${cand.num}(${cand.prob}%)` 
             });
         }
-    });
-    
-    // 鄰號補位
-    while (selected.length < count) {
-        const neighbor = Math.floor(Math.random() * range) + 1;
-        if (!used.has(neighbor)) {
-            selected.push({ val: neighbor, tag: '鄰號' });
-            used.add(neighbor);
+    }
+
+    // Phase B: 鄰號
+    const neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, selected);
+    for (const n of neighborCandidates) {
+        if (result.length >= allocation.drag + allocation.neighbor) break;
+        if (!selected.has(n.num)) {
+            selected.add(n.num);
+            result.push({ val: n.num, tag: `${n.from}鄰號` });
         }
     }
+
+    // Phase C: 統計尾數
+    const tailCandidates = getTailCandidatesStrict(tailClusters, tailAnalysis, range, selected);
+    for (const t of tailCandidates) {
+        if (result.length >= count) break;
+        if (!selected.has(t.num)) {
+            selected.add(t.num);
+            result.push({ val: t.num, tag: `${t.tail}尾(${t.source})` });
+        }
+    }
+
+    // Phase D: 熱號回補
+    if (result.length < count) {
+        const needed = count - result.length;
+        const hotNumbers = getWeightedHotNumbers(data, range, needed, selected);
+        hotNumbers.forEach(n => {
+            selected.add(n);
+            result.push({ val: n, tag: '加權熱號' });
+        });
+    }
+
+    // 4. 第二區
+    if (zone2) {
+        const zone2Num = selectZone2Strict(data, zone2);
+        return { 
+            numbers: [...result.sort((a,b) => a.val - b.val), ...zone2Num], 
+            groupReason: "🔗 加權拖牌+ZScore尾數",
+            metadata: { allocation } // ✨ V4.2 新增 Metadata
+        };
+    }
     
-    return selected.sort((a, b) => a.val - b.val);
+    return { 
+        numbers: result.sort((a, b) => a.val - b.val), 
+        groupReason: "🔗 V4.2 專業級關聯分析",
+        metadata: { allocation } // ✨ V4.2 新增 Metadata
+    };
 }
 
-function selectNeighborAnalysis(lastDraw, range, count) {
-    const selected = [], used = new Set();
-    
-    // 鄰號 + 尾數群聚
-    lastDraw.forEach(num => {
-        const candidates = [num-1, num+1].filter(n => n >= 1 && n <= range && !used.has(n));
-        if (candidates.length > 0) {
-            const pick = candidates[0];
-            selected.push({ val: pick, tag: `${num}鄰` });
-            used.add(pick);
-        }
-    });
-    
-    while (selected.length < count) {
-        const num = Math.floor(Math.random() * range) + 1;
-        if (!used.has(num)) {
-            selected.push({ val: num, tag: '尾數群' });
-            used.add(num);
-        }
-    }
-    
-    return selected.sort((a, b) => a.val - b.val);
+// ============================================
+// 3. 數學核心模塊
+// ============================================
+
+function calculateDynamicAllocation(dataSize, gameDef, targetCount) {
+    const { range } = gameDef;
+    const optimal = PATTERN_CONFIG.DATA_THRESHOLDS.combo.optimal;
+    const sufficiency = Math.min(1.0, dataSize / optimal);
+
+    let baseAlloc;
+    if (range === 49) baseAlloc = PATTERN_CONFIG.ALLOCATION.LOTTO_49;
+    else if (range === 38) baseAlloc = PATTERN_CONFIG.ALLOCATION.POWER_38;
+    else if (range === 39) baseAlloc = PATTERN_CONFIG.ALLOCATION.TODAY_39;
+    else baseAlloc = { drag: Math.ceil(targetCount/2), neighbor: 1, tail: 1 };
+
+    // 動態調整
+    const adjusted = {
+        drag: Math.floor(baseAlloc.drag * sufficiency),
+        neighbor: baseAlloc.neighbor,
+        tail: Math.floor(baseAlloc.tail * Math.sqrt(sufficiency))
+    };
+
+    return adjusted; 
 }
 
-// ✅ 修正：完整實現 3星彩專家選號邏輯
-function select3DExpert(data, range) {
-    if (data.length === 0) {
-        return [{ val: 5, tag: '3星預設' }];
+function generateWeightedDragMap(data, periods) {
+    const dragMap = {}; 
+    const seedTotalScore = {}; 
+    const lookback = Math.min(periods, data.length - 1);
+
+    for (let i = 0; i < lookback; i++) {
+        const currentDraw = data[i].numbers.slice(0, 6);
+        const prevDraw = data[i + 1].numbers.slice(0, 6);
+        const weight = Math.pow(PATTERN_CONFIG.DECAY_FACTOR, i);
+
+        prevDraw.forEach(causeNum => {
+            seedTotalScore[causeNum] = (seedTotalScore[causeNum] || 0) + weight;
+            if (!dragMap[causeNum]) dragMap[causeNum] = {};
+
+            currentDraw.forEach(resultNum => {
+                dragMap[causeNum][resultNum] = (dragMap[causeNum][resultNum] || 0) + weight;
+            });
+        });
     }
-    
-    const SUM_MIN = 10;
-    const SUM_MAX = 20;
-    
-    // 統計熱溫冷號
-    const freq = new Map();
-    data.slice(0, 20).forEach(draw => {
-        draw.numbers.slice(0, 3).forEach(num => {
-            if (num >= 0 && num <= 9) {
-                freq.set(num, (freq.get(num) || 0) + 1);
+
+    const finalMap = {};
+    Object.keys(dragMap).forEach(key => {
+        const causeNum = parseInt(key);
+        const denominator = (seedTotalScore[causeNum] || 0) + PATTERN_CONFIG.SMOOTHING;
+        
+        finalMap[causeNum] = Object.entries(dragMap[key])
+            .map(([num, score]) => ({
+                num: parseInt(num),
+                prob: parseFloat(((score / denominator) * 100).toFixed(2))
+            }))
+            .sort((a, b) => b.prob - a.prob)
+            .slice(0, 5);
+    });
+
+    return finalMap;
+}
+
+function analyzeTailStatsDynamic(data, range, periods) {
+    const tailCounts = Array(10).fill(0);
+    const lookback = Math.min(periods, data.length);
+    let totalBalls = 0;
+
+    for (let i = 0; i < lookback; i++) {
+        data[i].numbers.slice(0, 6).forEach(n => {
+            if (n <= range) {
+                tailCounts[n % 10]++;
+                totalBalls++;
             }
         });
-    });
-    
-    const hot = Array.from(freq.entries())
-        .filter(([_, f]) => f >= 8)
-        .map(([n]) => n);
-    const warm = Array.from(freq.entries())
-        .filter(([_, f]) => f >= 5 && f < 8)
-        .map(([n]) => n);
-    const cold = Array.from({length: 10}, (_, i) => i)
-        .filter(i => !hot.includes(i) && !warm.includes(i));
-    
-    const selected = [];
-    const used = new Set();
-    
-    // 1熱+2溫 配比
-    if (hot.length > 0) {
-        const h = hot[0];
-        selected.push({ val: h, tag: '熱號' });
-        used.add(h);
     }
-    
-    for (let i = 0; i < 2 && warm.length > 0; i++) {
-        const w = warm[i];
-        if (!used.has(w)) {
-            selected.push({ val: w, tag: '溫號' });
-            used.add(w);
-        }
-    }
-    
-    // 補齊冷號
-    while (selected.length < 3 && cold.length > 0) {
-        const c = cold[Math.floor(Math.random() * cold.length)];
-        if (!used.has(c)) {
-            selected.push({ val: c, tag: '冷號' });
-            used.add(c);
-        }
-    }
-    
-    return selected.slice(0, 3);
-}
 
-function selectPositionPattern(data, range, count) {
-    // 位置關聯分析
-    return Array(count).fill().map((_, i) => ({
-        val: Math.floor(Math.random() * (range + 1)),
-        tag: `位${i+1}關聯`
-    }));
-}
+    const mean = totalBalls / 10;
+    const variance = tailCounts.reduce((acc, count) => acc + Math.pow(count - mean, 2), 0) / 9;
+    const stdDev = Math.sqrt(variance);
 
-// ✅ 修正：selectZone2Pattern 返回單個對象，不是陣列
-function selectZone2Pattern(data, zone2Range) {
-    if (!zone2Range || zone2Range < 1) {
-        return { val: 1, tag: '第二區版路' };
-    }
-    
-    const zone2Freq = new Map();
-    data.slice(0, 10).forEach(draw => {
-        const z2 = draw.numbers[6];
-        if (z2 >= 1 && z2 <= zone2Range) {
-            zone2Freq.set(z2, (zone2Freq.get(z2) || 0) + 1);
+    if (stdDev < PATTERN_CONFIG.EPSILON) return [];
+
+    const MIN_STD_DEV = Math.max(0.5, Math.sqrt(totalBalls / (range * 5))); 
+    const effectiveStdDev = Math.max(stdDev, MIN_STD_DEV);
+
+    const hotTails = [];
+    tailCounts.forEach((count, tail) => {
+        const zScore = (count - mean) / effectiveStdDev;
+        if (zScore > PATTERN_CONFIG.Z_SCORE_THRESHOLD) {
+            hotTails.push({ tail, zScore });
         }
     });
+
+    return hotTails.sort((a, b) => b.zScore - a.zScore);
+}
+
+function findTailClusters(lastDraw) {
+    const counts = {};
+    lastDraw.forEach(n => {
+        const t = n % 10;
+        counts[t] = (counts[t] || 0) + 1;
+    });
+    return Object.entries(counts)
+        .filter(([_, c]) => c >= 2)
+        .map(([t, c]) => ({ tail: parseInt(t), count: c }))
+        .sort((a, b) => b.count - a.count);
+}
+
+// 候選生成函數 (保持不變)
+function getDragCandidatesStrict(lastDraw, dragMap, range) {
+    const candidates = [];
+    lastDraw.forEach(seedNum => {
+        const drags = dragMap[seedNum] || [];
+        drags.forEach(d => {
+            if (d.num >= 1 && d.num <= range) candidates.push({ num: d.num, from: seedNum, prob: d.prob });
+        });
+    });
+    const unique = new Map();
+    candidates.forEach(c => {
+        if (!unique.has(c.num) || unique.get(c.num).prob < c.prob) unique.set(c.num, c);
+    });
+    return Array.from(unique.values()).sort((a, b) => {
+        if (Math.abs(b.prob - a.prob) > 0.1) return b.prob - a.prob;
+        return a.num - b.num;
+    });
+}
+
+function getNeighborCandidatesStrict(lastDraw, range, excludeSet) {
+    const candidates = [];
+    lastDraw.forEach(seedNum => {
+        [-1, +1].forEach(offset => {
+            const n = seedNum + offset;
+            if (n >= 1 && n <= range && !excludeSet.has(n)) candidates.push({ num: n, from: seedNum });
+        });
+    });
+    return candidates.sort((a, b) => a.num - b.num);
+}
+
+function getTailCandidatesStrict(clusters, zAnalysis, range, excludeSet) {
+    const candidates = [];
+    clusters.forEach(({ tail }) => {
+        for (let n = (tail===0?10:tail); n <= range; n+=10) {
+            if (!excludeSet.has(n)) candidates.push({ num: n, tail, source: '群聚' });
+        }
+    });
+    if (candidates.length < 2) {
+        zAnalysis.forEach(({ tail, zScore }) => {
+            for (let n = (tail===0?10:tail); n <= range; n+=10) {
+                if (!excludeSet.has(n) && !candidates.some(c => c.num === n)) {
+                    candidates.push({ num: n, tail, source: `Z:${zScore.toFixed(1)}` });
+                }
+            }
+        });
+    }
+    return candidates;
+}
+
+// ============================================
+// 4. 第二區與數字型 - 多策略引擎
+// ============================================
+
+function selectZone2Strict(data, zone2Range) {
+    const freq = {};
+    const lastSeen = {};
+    const lookback = Math.min(50, data.length);
+
+    for (let i = 0; i < lookback; i++) {
+        const nums = data[i].numbers;
+        if (!nums || nums.length === 0) continue; 
+        const z2 = nums[nums.length - 1]; 
+        if (typeof z2 === 'number' && z2 <= zone2Range) {
+            freq[z2] = (freq[z2] || 0) + 1;
+            if (lastSeen[z2] === undefined) lastSeen[z2] = i; 
+        }
+    }
+
+    const candidates = [];
+    for (let n = 1; n <= zone2Range; n++) {
+        const gap = lastSeen[n] !== undefined ? lastSeen[n] : lookback;
+        const count = freq[n] || 0;
+        const score = count + (gap * 0.4); 
+        candidates.push({ num: n, gap, score });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0] || { num: 1, gap: 0 };
+    return [{ val: best.num, tag: `Z2(G${best.gap})` }];
+}
+
+function handleDigitPatternV4(data, gameDef, strategy = 'default') {
+    const { count, id } = gameDef;
+    if (count === 3 && (id === '3d' || id === '3star')) {
+        return execute3StarStrategy(data, strategy);
+    }
+    return executePositionalStrategy(data, count, strategy);
+}
+
+/**
+ * 3星彩多策略執行器 (V4.2 優化)
+ */
+function execute3StarStrategy(data, strategyName) {
+    const config = DIGIT3_STRATEGIES[strategyName] || DIGIT3_STRATEGIES.default;
     
-    const topZ2 = zone2Freq.size > 0
-        ? Array.from(zone2Freq.entries()).sort((a, b) => b[1] - a[1])[0][0]
-        : Math.floor(Math.random() * zone2Range) + 1;
-    
+    // 計算各位置頻率排名
+    const posStats = [0, 1, 2].map(pos => {
+        const counts = new Array(10).fill(0);
+        data.slice(0, 50).forEach(d => {
+            if (d.numbers.length > pos) {
+                const n = d.numbers[pos];
+                if (n >= 0 && n <= 9) counts[n]++;
+            }
+        });
+        return counts.map((c, n) => ({ n, c })).sort((a, b) => b.c - a.c);
+    });
+
+    // 根據 picks 陣列選擇號碼
+    let combo = [];
+    for(let i=0; i<3; i++) {
+        const rankIdx = config.picks[i]; // 取出該位置指定的排名索引
+        const candidate = posStats[i][rankIdx] || posStats[i][0]; // 防呆
+        combo.push(candidate.n);
+    }
+
+    // 和值優化
+    if (config.sumOpt) {
+        let sum = combo.reduce((a, b) => a + b, 0);
+        if (sum < 10) {
+            const better = posStats[1].find(x => combo[0] + x.n + combo[2] >= 10);
+            if (better) combo[1] = better.n;
+        } else if (sum > 20) {
+            const better = posStats[1].find(x => combo[0] + x.n + combo[2] <= 20);
+            if (better) combo[1] = better.n;
+        }
+    }
+
     return {
-        val: topZ2,
-        tag: '第二區版路'
+        numbers: combo.map((n, i) => ({ val: n, tag: config.name })),
+        groupReason: `🎯 V4.2 ${config.name}`,
+        metadata: { strategy: strategyName, picks: config.picks } // ✨ V4.2 Metadata
     };
+}
+
+function executePositionalStrategy(data, count, strategy) {
+    const result = [];
+    const pickIndex = strategy === 'conservative' ? 1 : 0; 
+
+    for(let i=0; i<count; i++) {
+        const stats = new Array(10).fill(0);
+        data.slice(0, 50).forEach(d => {
+            if (d.numbers.length > i) {
+                const n = d.numbers[i];
+                if (n >= 0 && n <= 9) stats[n]++;
+            }
+        });
+        const sorted = stats.map((c, n) => ({n, c})).sort((a,b) => b.c - a.c);
+        const pick = sorted[pickIndex] || sorted[0];
+        result.push({ val: pick.n, tag: `Pos${i+1}` });
+    }
+    return { 
+        numbers: result, 
+        groupReason: strategy === 'conservative' ? "🔗 次熱位置" : "🔗 熱門位置",
+        metadata: { pickIndex }
+    };
+}
+
+function getWeightedHotNumbers(data, range, needed, excludeSet) {
+    const weightedFreq = {};
+    const lookback = Math.min(PATTERN_CONFIG.FALLBACK_PERIOD, data.length);
+    for(let i=0; i<lookback; i++) {
+        const weight = Math.pow(PATTERN_CONFIG.DECAY_FACTOR, i);
+        data[i].numbers.slice(0, 6).forEach(n => {
+            if (n <= range) weightedFreq[n] = (weightedFreq[n] || 0) + weight;
+        });
+    }
+    return Object.entries(weightedFreq)
+        .map(([n, w]) => ({ n: parseInt(n), w }))
+        .sort((a, b) => b.w - a.w)
+        .map(obj => obj.n)
+        .filter(n => !excludeSet.has(n))
+        .slice(0, needed);
 }
