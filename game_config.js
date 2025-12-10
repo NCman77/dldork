@@ -12,7 +12,7 @@ GAMES: {
             range: 49,
             count: 6,
             special: true,
-            drawDays: [2, 5], // 新增：週二、週五開獎
+            drawDays: [2, 5],
             desc: "在01~49中選取6個號碼，每週二、五開獎。",
             subModes: null,
             article: `
@@ -20,23 +20,23 @@ GAMES: {
                     <h5 class="font-bold text-stone-800 text-lg">大樂透玩法規則</h5>
                     <p>您必須從01~49中任選6個號碼進行投注。開獎時，開獎單位將隨機開出六個號碼加一個特別號。</p>
                     <div class="overflow-x-auto rounded-lg border border-stone-200">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase">
+                        <table class="w-full text-left text-sm text-stone-600">
+                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase text-xs">
                                 <tr>
-                                    <th class="px-3 py-2">獎項</th>
-                                    <th class="px-3 py-2">中獎方式</th>
-                                    <th class="px-3 py-2 text-right">獎金</th>
+                                    <th class="px-3 py-3">獎項</th>
+                                    <th class="px-3 py-3">中獎方式</th>
+                                    <th class="px-3 py-3 text-right">獎金</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-stone-100 bg-white">
-                                <tr><td class="px-3 py-2 font-bold text-rose-600">頭獎</td><td>6個獎號完全相同</td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">貳獎</td><td>任5碼 ＋ 特別號</td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">參獎</td><td>任5碼</td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">肆獎</td><td>任4碼 ＋ 特別號</td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">伍獎</td><td>任4碼</td><td class="px-3 py-2 text-right">$2,000</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">陸獎</td><td>任3碼 ＋ 特別號</td><td class="px-3 py-2 text-right">$1,000</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">柒獎</td><td>任2碼 ＋ 特別號</td><td class="px-3 py-2 text-right">$400</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">普獎</td><td>任3碼</td><td class="px-3 py-2 text-right">$400</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-rose-600">頭獎</td><td class="px-3 py-3">6個獎號完全相同</td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">貳獎</td><td class="px-3 py-3">任5碼 ＋ 特別號</td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">參獎</td><td class="px-3 py-3">任5碼</td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">肆獎</td><td class="px-3 py-3">任4碼 ＋ 特別號</td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">伍獎</td><td class="px-3 py-3">任4碼</td><td class="px-3 py-3 text-right">$2,000</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">陸獎</td><td class="px-3 py-3">任3碼 ＋ 特別號</td><td class="px-3 py-3 text-right">$1,000</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">柒獎</td><td class="px-3 py-3">任2碼 ＋ 特別號</td><td class="px-3 py-3 text-right">$400</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">普獎</td><td class="px-3 py-3">任3碼</td><td class="px-3 py-3 text-right">$400</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -51,7 +51,7 @@ GAMES: {
             range: 38,
             count: 6,
             zone2: 8,
-            drawDays: [1, 4], // 新增：週一、週四開獎
+            drawDays: [1, 4],
             desc: "第一區01~38選6個，第二區01~08選1個。",
             subModes: null,
             article: `
@@ -59,26 +59,26 @@ GAMES: {
                     <h5 class="font-bold text-stone-800 text-lg">威力彩玩法規則</h5>
                     <p>第1區(01~38)選6個，第2區(01~08)選1個。兩種區塊皆對中即有機會獲獎。</p>
                     <div class="overflow-x-auto rounded-lg border border-stone-200">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase">
+                        <table class="w-full text-left text-sm text-stone-600">
+                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase text-xs">
                                 <tr>
-                                    <th class="px-3 py-2">獎項</th>
-                                    <th class="px-3 py-2">第1區</th>
-                                    <th class="px-3 py-2">第2區</th>
-                                    <th class="px-3 py-2 text-right">獎金</th>
+                                    <th class="px-3 py-3">獎項</th>
+                                    <th class="px-3 py-3">第1區</th>
+                                    <th class="px-3 py-3">第2區</th>
+                                    <th class="px-3 py-3 text-right">獎金</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-stone-100 bg-white">
-                                <tr><td class="px-3 py-2 font-bold text-rose-600">頭獎</td><td>6碼全中</td><td>對中</td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">貳獎</td><td>6碼全中</td><td><span class="text-stone-300">未中</span></td><td class="px-3 py-2 text-right">獎金分配</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">參獎</td><td>任5碼</td><td>對中</td><td class="px-3 py-2 text-right">$150,000</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">肆獎</td><td>任5碼</td><td><span class="text-stone-300">未中</span></td><td class="px-3 py-2 text-right">$20,000</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">伍獎</td><td>任4碼</td><td>對中</td><td class="px-3 py-2 text-right">$4,000</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">陸獎</td><td>任4碼</td><td><span class="text-stone-300">未中</span></td><td class="px-3 py-2 text-right">$800</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">柒獎</td><td>任3碼</td><td>對中</td><td class="px-3 py-2 text-right">$400</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">捌獎</td><td>任2碼</td><td>對中</td><td class="px-3 py-2 text-right">$200</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">玖獎</td><td>任3碼</td><td><span class="text-stone-300">未中</span></td><td class="px-3 py-2 text-right">$100</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">普獎</td><td>任1碼</td><td>對中</td><td class="px-3 py-2 text-right">$100</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-rose-600">頭獎</td><td class="px-3 py-3">6碼全中</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">貳獎</td><td class="px-3 py-3">6碼全中</td><td class="px-3 py-3"><span class="text-stone-300">未中</span></td><td class="px-3 py-3 text-right">獎金分配</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">參獎</td><td class="px-3 py-3">任5碼</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">$150,000</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">肆獎</td><td class="px-3 py-3">任5碼</td><td class="px-3 py-3"><span class="text-stone-300">未中</span></td><td class="px-3 py-3 text-right">$20,000</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">伍獎</td><td class="px-3 py-3">任4碼</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">$4,000</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">陸獎</td><td class="px-3 py-3">任4碼</td><td class="px-3 py-3"><span class="text-stone-300">未中</span></td><td class="px-3 py-3 text-right">$800</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">柒獎</td><td class="px-3 py-3">任3碼</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">$400</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">捌獎</td><td class="px-3 py-3">任2碼</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">$200</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">玖獎</td><td class="px-3 py-3">任3碼</td><td class="px-3 py-3"><span class="text-stone-300">未中</span></td><td class="px-3 py-3 text-right">$100</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">普獎</td><td class="px-3 py-3">任1碼</td><td class="px-3 py-3">對中</td><td class="px-3 py-3 text-right">$100</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -93,7 +93,7 @@ GAMES: {
             range: 39,
             count: 5,
             special: false,
-            drawDays: [1, 2, 3, 4, 5, 6], // 新增：週一至週六
+            drawDays: [1, 2, 3, 4, 5, 6],
             desc: "01~39選5個，每週一至六開獎。",
             subModes: null,
             article: `
@@ -101,18 +101,18 @@ GAMES: {
                     <h5 class="font-bold text-stone-800 text-lg">今彩539玩法規則</h5>
                     <p>從01~39的號碼中任選5個號碼進行投注。如有二個以上（含二個號碼）對中當期開出之五個號碼，即為中獎。</p>
                     <div class="overflow-x-auto rounded-lg border border-stone-200">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase">
+                        <table class="w-full text-left text-sm text-stone-600">
+                            <thead class="bg-stone-100 text-stone-700 font-bold uppercase text-xs">
                                 <tr>
-                                    <th class="px-3 py-2">獎項</th>
-                                    <th class="px-3 py-2">中獎條件</th>
+                                    <th class="px-3 py-3">獎項</th>
+                                    <th class="px-3 py-3">中獎條件</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-stone-100 bg-white">
-                                <tr><td class="px-3 py-2 font-bold text-rose-600">頭獎</td><td>與當期五個中獎號碼完全相同者</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">貳獎</td><td>對中當期獎號之其中任四碼</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">參獎</td><td>對中當期獎號之其中任三碼</td></tr>
-                                <tr><td class="px-3 py-2 font-bold text-stone-700">肆獎</td><td>對中當期獎號之其中任二碼</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-rose-600">頭獎</td><td class="px-3 py-3">與當期五個中獎號碼完全相同者</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">貳獎</td><td class="px-3 py-3">對中當期獎號之其中任四碼</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">參獎</td><td class="px-3 py-3">對中當期獎號之其中任三碼</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">肆獎</td><td class="px-3 py-3">對中當期獎號之其中任二碼</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -312,4 +312,5 @@ GAMES: {
         }
     }
 };
+
 
