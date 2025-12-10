@@ -84,10 +84,11 @@ const log = (...args) => {
  * @param {Object} params.gameDef - 遊戲定義
  * @param {String} params.subModeId - 子模式
  * @param {String} [params.strategy='default'] - 策略名稱
- * @param {Set} [params.excludeNumbers] - [新增] 要排除的號碼集合
+ * @param {Set} [params.excludeNumbers] - 要排除的號碼集合
+ * @param {Boolean} [params.random=false] - [新增] 是否啟用隨機擾動
  */
-export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set() }) {
-    log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 策略: ${strategy}`);
+export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set(), random = false }) {
+    log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 策略: ${strategy} | 隨機: ${random}`);
     
     // 1. 資料驗證與正規化 (含淺拷貝)
     const validation = validateAndNormalizeData(data, gameDef);
@@ -97,11 +98,13 @@ export function algoPattern({ data, gameDef, subModeId, strategy = 'default', ex
     }
     const { data: validData, warning } = validation;
 
-    // 2. 分流處理 (將 excludeNumbers 傳入)
+    // 2. 分流處理 (傳入 random)
     let result;
     if (gameDef.type === 'lotto' || gameDef.type === 'power') {
-        result = handleComboPatternV4(validData, gameDef, excludeNumbers);
+        result = handleComboPatternV4(validData, gameDef, excludeNumbers, random);
     } else if (gameDef.type === 'digit') {
+        // 數字型玩法通常由 strategy 控制變異，隨機模式可視為一種特殊的 strategy 應用
+        // 這裡暫時維持原樣，因為 3星/4星 號碼少，隨機容易破壞結構
         result = handleDigitPatternV4(validData, gameDef, strategy);
     } else {
         return { numbers: [], groupReason: "❌ 不支援的玩法類型" };
@@ -216,7 +219,7 @@ function generateWeightedDragMapCached(data, periods) {
 // 2. 組合型核心邏輯
 // ============================================
 
-function handleComboPatternV4(data, gameDef, excludeNumbers) {
+function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
     const { range, count, zone2 } = gameDef;
     const lastDraw = data[0].numbers.slice(0, 6); 
     
@@ -231,19 +234,33 @@ function handleComboPatternV4(data, gameDef, excludeNumbers) {
     // 3. 選號流程
     const selected = new Set();
     const result = [];
-
-    // [修改] 建立一個「檢查用」的集合，包含「本輪已選」和「全域已排除」的號碼
-    // 這樣候選生成函式就會自動跳過上一注已經出現過的號碼
     const checkSet = new Set([...selected, ...excludeNumbers]);
 
-    // Phase A: 加權拖牌
-    // [修改] 傳入 checkSet 進行過濾
-    const dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range, checkSet);
+    // [Helper] 隨機擾動排序器
+    // 若開啟隨機，則給分數乘上 0.9~1.1 的浮動值，讓排名微調
+    const applyNoise = (arr, scoreKey) => {
+        if (!isRandom) return arr;
+        return arr.map(item => ({
+            ...item,
+            _noiseScore: (item[scoreKey] || 1) * (0.9 + Math.random() * 0.2)
+        })).sort((a, b) => b._noiseScore - a._noiseScore);
+    };
+
+    // [Helper] 純隨機洗牌 (用於沒有分數的候選人，如鄰號)
+    const shuffle = (arr) => {
+        if (!isRandom) return arr;
+        return [...arr].sort(() => 0.5 - Math.random());
+    };
+
+    // Phase A: 加權拖牌 (有 prob 分數 -> 使用權重擾動)
+    let dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range, checkSet);
+    dragCandidates = applyNoise(dragCandidates, 'prob');
+
     for (const cand of dragCandidates) {
         if (result.length >= allocation.drag) break;
         if (!selected.has(cand.num) && !excludeNumbers.has(cand.num)) {
             selected.add(cand.num);
-            checkSet.add(cand.num); // 同步更新檢查集
+            checkSet.add(cand.num);
             result.push({ 
                 val: cand.num, 
                 tag: `${cand.from}→${cand.num}(${cand.prob}%)` 
@@ -251,9 +268,10 @@ function handleComboPatternV4(data, gameDef, excludeNumbers) {
         }
     }
 
-    // Phase B: 鄰號
-    // [修改] 傳入 checkSet
-    const neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, checkSet);
+    // Phase B: 鄰號 (無分數 -> 使用純洗牌，避免總是從小號碼選起)
+    let neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, checkSet);
+    neighborCandidates = shuffle(neighborCandidates);
+
     for (const n of neighborCandidates) {
         if (result.length >= allocation.drag + allocation.neighbor) break;
         if (!selected.has(n.num) && !excludeNumbers.has(n.num)) {
@@ -263,9 +281,16 @@ function handleComboPatternV4(data, gameDef, excludeNumbers) {
         }
     }
 
-    // Phase C: 統計尾數
-    // [修改] 傳入 checkSet
-    const tailCandidates = getTailCandidatesStrict(tailClusters, tailAnalysis, range, checkSet);
+    // Phase C: 統計尾數 (有 zScore 順序 -> 使用權重擾動)
+    // 注意：tailCandidates 本身沒有分數，它的順序是基於 zScore 預先排好的
+    // 為了簡單起見，我們這裡使用輕微洗牌，或者維持原樣
+    // 這裡選擇輕微洗牌以增加變異性
+    let tailCandidates = getTailCandidatesStrict(tailClusters, tailAnalysis, range, checkSet);
+    if (isRandom) {
+        // 尾數邏輯比較嚴謹，我們只在小範圍內擾動 (例如每 3 個一組洗牌)，這裡簡化為全體微幅擾動
+        tailCandidates = tailCandidates.sort(() => 0.5 - Math.random());
+    }
+
     for (const t of tailCandidates) {
         if (result.length >= count) break;
         if (!selected.has(t.num) && !excludeNumbers.has(t.num)) {
@@ -275,30 +300,41 @@ function handleComboPatternV4(data, gameDef, excludeNumbers) {
         }
     }
 
-    // Phase D: 熱號回補
+    // Phase D: 熱號回補 (有權重 -> 使用權重擾動)
     if (result.length < count) {
         const needed = count - result.length;
-        // [修改] 傳入 checkSet
-        const hotNumbers = getWeightedHotNumbers(data, range, needed, checkSet);
-        hotNumbers.forEach(n => {
+        // 注意：getWeightedHotNumbers 回傳的是純數字陣列，我們需要改用帶分數的版本才能擾動
+        // 為了不改動底層，這裡我們簡單處理：多取一些熱號，然後隨機挑
+        const buffer = needed * 3; 
+        let hotNumbers = getWeightedHotNumbers(data, range, buffer, checkSet);
+        if (isRandom) hotNumbers = hotNumbers.sort(() => 0.5 - Math.random());
+        
+        hotNumbers.slice(0, needed).forEach(n => {
             selected.add(n);
             result.push({ val: n, tag: '加權熱號' });
         });
     }
 
-    // 4. 第二區 (威力彩) - [注意] 第二區通常不參與排除，因為號碼池獨立且小
+    // 4. 第二區 (威力彩)
     if (zone2) {
+        // 第二區通常只有 8 個號碼，隨機模式下直接隨機選一個高頻的
         const zone2Num = selectZone2Strict(data, zone2);
+        if (isRandom && Math.random() > 0.5) {
+             // 50% 機率重新隨機選一個 (簡單實作)
+             const rnd = Math.floor(Math.random() * zone2) + 1;
+             zone2Num[0] = { val: rnd, tag: 'Z2(隨機)' };
+        }
+
         return { 
             numbers: [...result.sort((a,b) => a.val - b.val), ...zone2Num], 
-            groupReason: "🔗 加權拖牌+ZScore尾數",
+            groupReason: isRandom ? "🎲 關聯隨機 V4.2" : "🔗 加權拖牌+ZScore尾數",
             metadata: { allocation }
         };
     }
     
     return { 
         numbers: result.sort((a, b) => a.val - b.val), 
-        groupReason: "🔗 V4.2 專業級關聯分析",
+        groupReason: isRandom ? "🎲 關聯隨機 V4.2" : "🔗 V4.2 專業級關聯分析",
         metadata: { allocation } 
     };
 }
@@ -567,4 +603,5 @@ function getWeightedHotNumbers(data, range, needed, excludeSet) {
         .filter(n => !excludeSet.has(n)) // [修改] 這裡原本是 excludeSet，現在邏輯一致了
         .slice(0, needed);
 }
+
 
