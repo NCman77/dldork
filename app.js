@@ -983,26 +983,50 @@ const App = {
         };
     },
 algoSmartWheel(data, gameDef, pool, packMode) {
-        // [修改] 傳入 packMode ('pack_1' or 'pack_2')
-        const results = algoSmartWheel(data, gameDef, pool, packMode);
-        
-        if (!results || results.length === 0) {
-            document.getElementById('prediction-output').innerHTML = 
-                '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
-            return;
+    // [修改] 傳入 packMode ('pack_1' or 'pack_2')
+    
+    // [新增] Pool 質量檢查
+    if (pool.length < 6) {
+        console.warn(`⚠️ 包牌 Pool 不足：只有 ${pool.length} 個號碼，建議至少 6 個`);
+    }
+    
+    // [新增] 檢查連續號碼（可能導致組合不佳）
+    if (gameDef.type !== 'digit') {
+        let consecutiveCount = 1;
+        const sortedPool = [...pool].sort((a, b) => a - b);
+        for (let i = 1; i < sortedPool.length; i++) {
+            if (sortedPool[i] === sortedPool[i-1] + 1) {
+                consecutiveCount++;
+                if (consecutiveCount >= 4) {
+                    console.warn(`⚠️ Pool 包含過多連續號碼，可能影響包牌多樣性`);
+                    break;
+                }
+            } else {
+                consecutiveCount = 1;
+            }
         }
+    }
+    
+    const results = algoSmartWheel(data, gameDef, pool, packMode);
+    
+    if (!results || results.length === 0) {
+        document.getElementById('prediction-output').innerHTML = 
+            '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
+        return;
+    }
 
-        results.forEach((res, idx) =>
-            this.renderRow(
-                {
-                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                    groupReason: res.groupReason
-                },
-                idx + 1,
-                `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
-            )
-        );
-    },
+    results.forEach((res, idx) =>
+        this.renderRow(
+            {
+                numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
+                groupReason: res.groupReason
+            },
+            idx + 1,
+            `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
+        )
+    );
+},
+
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
         const colors = {
@@ -1098,6 +1122,7 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
