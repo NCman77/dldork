@@ -36,8 +36,6 @@ export function algoSmartWheel(data, gameDef, pool) {
         if (bestNums.length < count) return []; // 號碼不夠
 
         // 簡單排列 (Permutation) - 這裡示範 3星彩常用的 6 組排列
-        // 如果是 4 星彩，全排列會有 24 組，這裡簡化處理：只做隨機排列或基本排列
-        
         if (count === 3) {
             const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
             perms.forEach(p => {
@@ -50,7 +48,6 @@ export function algoSmartWheel(data, gameDef, pool) {
         } else {
             // 4星彩簡單做 5 組循環移位
             for(let i=0; i<5; i++) {
-                // 簡單的循環移位邏輯
                 const set = [...bestNums];
                 const shift = set.splice(0, i % 4);
                 set.push(...shift);
@@ -62,16 +59,18 @@ export function algoSmartWheel(data, gameDef, pool) {
         }
     } 
     // 3. 樂透型 (大樂透/539)
-    // 策略：旋轉矩陣 / 隨機組合 (從 10 碼 Pool 中取 C10取N)
+    // 策略：隨機組合 (從 10 碼 Pool 中取 C10取N)
     else {
-        // 我們的目標是產生約 3~5 注精選
+        // 我們的目標是產生約 5 注精選
         // 這裡採用「隨機選取」策略，但範圍限定在 Pool (10碼) 內
-        // 這比完全隨機準確，因為 Pool 已經是學派篩選過的精華
-        
-        const targetCount = 5; // 預設產出 5 注包牌結果
+        const targetCount = 5; 
         for (let k = 0; k < targetCount; k++) {
-            // 從 Pool 中隨機抓取 count 個號碼
-            const shuffled = [...pool].sort(() => 0.5 - Math.random());
+            // 使用 Fisher-Yates 洗牌從 Pool 中抓取
+            const shuffled = [...pool];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
             const set = shuffled.slice(0, gameDef.count).sort((a, b) => a - b);
             
             results.push({
