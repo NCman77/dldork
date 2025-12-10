@@ -830,7 +830,6 @@ const App = {
         let data       = this.state.rawData[gameName] || [];
         if (!gameDef) return;
 
-        // [修改] 讀取模式 (strict, random, pack)
         const modeInput = document.querySelector('input[name="count"]:checked');
         const mode = modeInput ? modeInput.value : 'strict';
 
@@ -849,13 +848,15 @@ const App = {
         const packPool = [];
 
         for (let i = 0; i < count; i++) {
-            // [修改] 傳入 excludeNumbers 與 random 參數
+            // [修改] 傳入 excludeNumbers, random 以及 setIndex (即迴圈索引 i)
+            // setIndex 用於嚴選模式下的「輪轉」與「排名偏移」
             const params = { 
                 data, 
                 gameDef, 
                 subModeId: this.state.currentSubMode, 
                 excludeNumbers: excludeSet,
-                random: isRandom 
+                random: isRandom,
+                setIndex: i 
             };
             
             let result = null;
@@ -869,23 +870,21 @@ const App = {
             }
 
             if (result) {
-                // MonteCarlo 檢查 (保留原本邏輯)
                 if (!monteCarloSim(result.numbers, gameDef)) { /* fallback */ }
 
-                // 更新排除名單 (防止重複)
+                // 更新排除名單
                 result.numbers.forEach(n => {
                     excludeSet.add(n.val);
-                    if (isPack) packPool.push(n.val); // 收集包牌候選
+                    if (isPack) packPool.push(n.val); 
                 });
 
                 // 如果不是包牌模式，直接渲染結果
                 if (!isPack) {
                     let rankLabel = `SET ${i + 1}`;
                     if (isRandom) {
-                        // 隨機模式的標籤
                         rankLabel = `<span class="text-amber-600">🎲 隨機推薦 ${i+1}</span>`;
                     } else {
-                        // 嚴選模式的標籤 (分層結構排除法)
+                        // 嚴選模式顯示排名結構
                         if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
                         else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
                         else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
@@ -894,14 +893,13 @@ const App = {
                     this.renderRow(result, i + 1, rankLabel);
                 }
                 
-                // 包牌模式：若池子夠了就提早結束 (通常需要 10 個)
+                // 包牌模式：若池子夠了就提早結束
                 if (isPack && packPool.length >= 12) break;
             }
         }
 
-        // [新增] 包牌模式的後續處理 (橋接邏輯)
+        // 包牌模式的後續處理
         if (isPack) {
-            // 取前 10 個不重複號碼作為包牌池
             const finalPool = [...new Set(packPool)].slice(0, 10).sort((a,b)=>a-b);
             this.algoSmartWheel(data, gameDef, finalPool);
         }
@@ -1074,6 +1072,7 @@ algoSmartWheel(data, gameDef, pool) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
