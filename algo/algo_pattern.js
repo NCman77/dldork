@@ -79,35 +79,27 @@ const log = (...args) => {
 /**
  * 主入口函數
  * @param {Object} params
- * @param {Array} params.data - 歷史資料
- * @param {Object} params.gameDef - 遊戲定義
- * @param {String} params.subModeId - 子模式
- * @param {String} [params.strategy='default'] - 策略名稱
- * @param {Set} [params.excludeNumbers] - 要排除的號碼集合
- * @param {Boolean} [params.random=false] - [新增] 是否啟用隨機擾動
+ * @param {Number} [params.setIndex=0] - [新增] 組數索引，用於嚴選模式的輪轉與偏移
  */
-export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set(), random = false }) {
-    log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 策略: ${strategy} | 隨機: ${random}`);
+export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set(), random = false, setIndex = 0 }) {
+    log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 隨機: ${random} | Set: ${setIndex}`);
     
-    // 1. 資料驗證與正規化
     const validation = validateAndNormalizeData(data, gameDef);
     if (!validation.isValid) {
         return { numbers: [], groupReason: `資料錯誤: ${validation.error}` };
     }
     const { data: validData, warning } = validation;
 
-    // 2. 分流處理 (傳入 random)
     let result;
     if (gameDef.type === 'lotto' || gameDef.type === 'power') {
-        result = handleComboPatternV4(validData, gameDef, excludeNumbers, random);
+        result = handleComboPatternV4(validData, gameDef, excludeNumbers, random, setIndex);
     } else if (gameDef.type === 'digit') {
-        // [致命修復] 這裡必須傳遞 random 參數，否則 3星/4星 隨機模式無效
-        result = handleDigitPatternV4(validData, gameDef, strategy, random);
+        // [修正] 傳遞 setIndex 給數字型處理函式，用於排名偏移
+        result = handleDigitPatternV4(validData, gameDef, strategy, random, setIndex);
     } else {
         return { numbers: [], groupReason: "❌ 不支援的玩法類型" };
     }
 
-    // 3. 附加資料量警告與 Metadata 整合
     if (warning) {
         result.groupReason = `${warning} | ${result.groupReason}`;
     }
@@ -211,10 +203,10 @@ function generateWeightedDragMapCached(data, periods) {
 }
 
 // ============================================
-// 2. 組合型核心邏輯 (優化版：消除雙重檢查 + Fisher-Yates + 短標籤)
+// 2. 組合型核心邏輯 (Phase 4 最終版：連續檢查 + Zone 2 輪轉)
 // ============================================
 
-function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
+function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex) {
     const { range, count, zone2 } = gameDef;
     const lastDraw = data[0].numbers.slice(0, 6); 
     const allocation = calculateDynamicAllocation(data.length, gameDef, count);
@@ -225,15 +217,23 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
 
     const selected = new Set();
     const result = [];
-    
-    // [潔癖優化] checkSet 初始化為全域排除名單
-    // 後續每個 Phase 選中號碼後，會動態加入此 Set，供下個 Phase 過濾用
-    // 這樣外層迴圈就不需要再檢查 excludeNumbers，邏輯更乾淨
     const checkSet = new Set(excludeNumbers);
-    
     const stats = { drag: 0, neighbor: 0, tail: 0, hot: 0 };
 
-    // [Helper] 隨機擾動 (針對有分數的項目)
+    // [Helper] 連續數字檢查 (避免出現 3,4,5,6 這種爛牌)
+    const isConsecutiveSafe = (currentList, newNum) => {
+        if (isRandom) return true; // 隨機模式不限制，增加趣味
+        const nums = [...currentList.map(x => x.val), newNum].sort((a,b)=>a-b);
+        let maxCons = 1, currentCons = 1;
+        for(let i=1; i<nums.length; i++) {
+            if(nums[i] === nums[i-1] + 1) currentCons++;
+            else currentCons = 1;
+            maxCons = Math.max(maxCons, currentCons);
+        }
+        return maxCons <= 3; // 最多允許 3 連號 (如 3,4,5)，超過則視為不佳
+    };
+
+    // [Helper] 隨機擾動
     const applyNoise = (arr, scoreKey) => {
         if (!isRandom) return arr;
         return arr.map(item => ({
@@ -242,8 +242,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
         })).sort((a, b) => b._noiseScore - a._noiseScore);
     };
 
-    // [Helper] Fisher-Yates 洗牌 (針對無分數的項目 - 顧問建議優化)
-    // 解決 sort(0.5 - random) 不均勻的問題
+    // [Helper] Fisher-Yates 洗牌
     const shuffle = (arr) => {
         if (!isRandom) return arr;
         const res = [...arr];
@@ -255,15 +254,14 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
     };
 
     // Phase A: 加權拖牌
-    // 內部已過濾 checkSet (包含 excludeNumbers)，所以回傳的一定是乾淨的
     let dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range, checkSet);
     dragCandidates = applyNoise(dragCandidates, 'prob');
 
     for (const cand of dragCandidates) {
         if (result.length >= allocation.drag) break;
-        if (!selected.has(cand.num)) { // [優化] 只需檢查本輪是否重複，不用再檢查 excludeNumbers
+        if (!selected.has(cand.num) && isConsecutiveSafe(result, cand.num)) {
             selected.add(cand.num);
-            checkSet.add(cand.num); // [關鍵] 加入檢查集，防止鄰號選到它
+            checkSet.add(cand.num);
             result.push({ val: cand.num, tag: `${cand.from}拖` });
             stats.drag++;
         }
@@ -271,11 +269,11 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
 
     // Phase B: 鄰號
     let neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, checkSet);
-    neighborCandidates = shuffle(neighborCandidates); // 使用 Fisher-Yates
+    neighborCandidates = shuffle(neighborCandidates);
 
     for (const n of neighborCandidates) {
         if (result.length >= allocation.drag + allocation.neighbor) break;
-        if (!selected.has(n.num)) {
+        if (!selected.has(n.num) && isConsecutiveSafe(result, n.num)) {
             selected.add(n.num);
             checkSet.add(n.num);
             result.push({ val: n.num, tag: `${n.from}鄰` });
@@ -289,7 +287,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
 
     for (const t of tailCandidates) {
         if (result.length >= count) break;
-        if (!selected.has(t.num)) {
+        if (!selected.has(t.num) && isConsecutiveSafe(result, t.num)) {
             selected.add(t.num);
             checkSet.add(t.num);
             result.push({ val: t.num, tag: `${t.tail}尾` });
@@ -300,18 +298,21 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
     // Phase D: 熱號回補
     if (result.length < count) {
         const needed = count - result.length;
-        const buffer = needed * 3; 
+        const buffer = needed * 4; // 擴大緩衝區，便於過濾連續號
         let hotNumbers = getWeightedHotNumbers(data, range, buffer, checkSet);
         if (isRandom) hotNumbers = shuffle(hotNumbers);
         
-        hotNumbers.slice(0, needed).forEach(n => {
-            selected.add(n);
-            result.push({ val: n, tag: '熱號' });
-            stats.hot++;
-        });
+        for (const n of hotNumbers) {
+            if (stats.hot >= needed) break;
+            if (isConsecutiveSafe(result, n)) {
+                selected.add(n);
+                result.push({ val: n, tag: '熱號' });
+                stats.hot++;
+            }
+        }
     }
 
-    // [優化] 動態備註 (移除 Emoji，純文字)
+    // 動態備註
     const structStr = [];
     if (stats.drag) structStr.push(`${stats.drag}拖`);
     if (stats.neighbor) structStr.push(`${stats.neighbor}鄰`);
@@ -320,16 +321,21 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
     const reasonPrefix = isRandom ? "隨機結構" : "嚴選結構";
     const groupReason = `${reasonPrefix}：${structStr.join('/')}`;
 
-    // 4. 第二區 (威力彩) - Top 3 隨機策略 (顧問建議優化)
+    // 4. 第二區 (威力彩) - [修正] 輪轉與隨機並存
     if (zone2) {
-        const z2Cands = selectZone2Strict(data, zone2); // 取得完整候選陣列
-        let z2Pick = z2Cands[0]; // 預設選第一名
+        const z2Cands = selectZone2Strict(data, zone2); 
+        let z2Pick;
         
         if (isRandom && z2Cands.length >= 3) {
-            // 從前 3 名中隨機選一個 (保留統計優勢的隨機)
+            // 隨機模式：Top 3 隨機
             const top3 = z2Cands.slice(0, 3);
-            const rndIdx = Math.floor(Math.random() * top3.length); // [修正] 使用 top3.length
+            const rndIdx = Math.floor(Math.random() * top3.length);
             z2Pick = { ...top3[rndIdx], tag: `Z2(隨機)` }; 
+        } else {
+            // 嚴選模式：依照 setIndex 輪轉 (第1注選第1名, 第2注選第2名...)
+            // 使用 % 運算確保不會超出範圍 (例如前5名輪轉)
+            const pickIdx = setIndex % Math.min(5, z2Cands.length);
+            z2Pick = z2Cands[pickIdx];
         }
 
         return { 
@@ -345,7 +351,6 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom) {
         metadata: { allocation } 
     };
 }
-
 // ============================================
 // 3. 數學核心模塊
 // ============================================
@@ -537,22 +542,22 @@ function selectZone2Strict(data, zone2Range) {
     }
 
     candidates.sort((a, b) => b.score - a.score);
-    // [修正] 回傳完整陣列，供 Top 3 隨機使用 (之前只回傳一個導致隨機失效)
+    // 回傳完整陣列供選擇
     return candidates.map(c => ({ val: c.num, tag: `Z2(G${c.gap})` }));
 }
 
-function handleDigitPatternV4(data, gameDef, strategy = 'default', isRandom = false) {
+function handleDigitPatternV4(data, gameDef, strategy = 'default', isRandom = false, setIndex = 0) {
     const { count, id } = gameDef;
     if (count === 3 && (id === '3d' || id === '3star')) {
-        return execute3StarStrategy(data, strategy, isRandom);
+        return execute3StarStrategy(data, strategy, isRandom, setIndex);
     }
-    return executePositionalStrategy(data, count, strategy, isRandom);
+    return executePositionalStrategy(data, count, strategy, isRandom, setIndex);
 }
 
 /**
- * 3星彩多策略執行器 (V4.2 優化 - 支援隨機)
+ * 3星彩多策略執行器 (Phase 4: 支援隨機 + 排名偏移)
  */
-function execute3StarStrategy(data, strategyName, isRandom) {
+function execute3StarStrategy(data, strategyName, isRandom, setIndex) {
     const config = DIGIT3_STRATEGIES[strategyName] || DIGIT3_STRATEGIES.default;
     
     // 計算各位置頻率排名
@@ -567,12 +572,12 @@ function execute3StarStrategy(data, strategyName, isRandom) {
         
         let sorted = counts.map((c, n) => ({ n, c })).sort((a, b) => b.c - a.c);
         
-        // [修正] 3星彩隨機邏輯：對前 5 名進行擾動重排 (顧問建議)
+        // [隨機模式] 對前 5 名進行擾動重排
         if (isRandom) {
             const top5 = sorted.slice(0, 5);
             const shuffled = top5.map(item => ({
                 ...item,
-                _noise: item.c * (0.9 + Math.random() * 0.2)
+                _noise: item.c * (0.7 + Math.random() * 0.6) // 擴大擾動範圍
             })).sort((a, b) => b._noise - a._noise);
             sorted = [...shuffled, ...sorted.slice(5)];
         }
@@ -580,16 +585,23 @@ function execute3StarStrategy(data, strategyName, isRandom) {
         return sorted;
     });
 
-    // 根據 picks 陣列選擇號碼
+    // 根據 picks 陣列選擇號碼 (加入 setIndex 偏移)
     let combo = [];
     for(let i=0; i<3; i++) {
-        const rankIdx = config.picks[i]; 
-        const candidate = posStats[i][rankIdx] || posStats[i][0];
+        const baseRankIdx = config.picks[i]; 
+        
+        // [修正] 嚴選模式下，使用 setIndex 進行排名偏移 (Rank Shift)
+        // 例如第1注選第1名，第2注選第2名
+        const actualRankIdx = isRandom 
+            ? baseRankIdx 
+            : (baseRankIdx + setIndex) % 5; // 在前5名內輪轉
+
+        const candidate = posStats[i][actualRankIdx] || posStats[i][0];
         combo.push(candidate.n);
     }
 
-    // 和值優化
-    if (config.sumOpt) {
+    // 和值優化 (隨機模式下跳過)
+    if (config.sumOpt && !isRandom && setIndex === 0) {
         let sum = combo.reduce((a, b) => a + b, 0);
         if (sum < 10) {
             const better = posStats[1].find(x => combo[0] + x.n + combo[2] >= 10);
@@ -603,7 +615,7 @@ function execute3StarStrategy(data, strategyName, isRandom) {
     const reasonPrefix = isRandom ? "隨機" : "嚴選";
     return {
         numbers: combo.map((n, i) => ({ val: n, tag: config.name })),
-        groupReason: `${reasonPrefix} V4.2 ${config.name}`, // 移除 Emoji
+        groupReason: `${reasonPrefix} V4.2 ${config.name}`,
         metadata: { strategy: strategyName, picks: config.picks } 
     };
 }
@@ -626,8 +638,8 @@ function getWeightedHotNumbers(data, range, needed, checkSet) {
         .slice(0, needed);
 }
 
-// [緊急修復] 補回遺失的 4星彩 邏輯函數 (支援隨機)
-function executePositionalStrategy(data, count, strategy, isRandom) {
+// [緊急修復] 補回 4星彩 邏輯 (Phase 4: 支援隨機 + 排名偏移)
+function executePositionalStrategy(data, count, strategy, isRandom, setIndex) {
     const result = [];
     const pickIndex = strategy === 'conservative' ? 1 : 0; 
 
@@ -642,24 +654,29 @@ function executePositionalStrategy(data, count, strategy, isRandom) {
         
         let sorted = stats.map((c, n) => ({n, c})).sort((a,b) => b.c - a.c);
         
-        // [修正] 4星彩隨機邏輯：對前 5 名進行擾動重排
+        // [隨機模式] 擾動
         if (isRandom) {
             const top5 = sorted.slice(0, 5);
             const shuffled = top5.map(item => ({
                 ...item,
-                _noise: item.c * (0.9 + Math.random() * 0.2)
+                _noise: item.c * (0.7 + Math.random() * 0.6)
             })).sort((a, b) => b._noise - a._noise);
             sorted = [...shuffled, ...sorted.slice(5)];
         }
                 
-        const pick = sorted[pickIndex] || sorted[0];
+        // [嚴選模式] 偏移
+        const actualPickIndex = isRandom 
+            ? pickIndex 
+            : (pickIndex + setIndex) % 5;
+
+        const pick = sorted[actualPickIndex] || sorted[0];
         result.push({ val: pick.n, tag: `Pos${i+1}` });
     }
     
     const reasonPrefix = isRandom ? "隨機" : "嚴選";
     return { 
         numbers: result, 
-        groupReason: strategy === 'conservative' ? `${reasonPrefix} 次熱位置` : `${reasonPrefix} 熱門位置`, // 移除 Emoji
+        groupReason: strategy === 'conservative' ? `${reasonPrefix} 次熱位置` : `${reasonPrefix} 熱門位置`,
         metadata: { pickIndex }
     };
 }
