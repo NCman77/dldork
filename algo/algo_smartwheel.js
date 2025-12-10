@@ -37,7 +37,6 @@ export function algoSmartWheel(data, gameDef, pool) {
 
         // 簡單排列 (Permutation) - 這裡示範 3星彩常用的 6 組排列
         // 如果是 4 星彩，全排列會有 24 組，這裡簡化處理：只做隨機排列或基本排列
-        // 為了避免過多注數，我們產生 3~6 組具代表性的
         
         if (count === 3) {
             const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
