@@ -563,6 +563,34 @@ const App = {
         const gameDef = GAME_CONFIG.GAMES[gameName];
         let data = this.state.rawData[gameName] || [];
 
+        // [新增] 動態調整包牌按鈕文字與顯示狀態
+        const pack1Text = document.getElementById('btn-pack-1-text');
+        const pack2Text = document.getElementById('btn-pack-2-text');
+        const pack2Container = document.getElementById('btn-pack-2-container');
+        const pack2Input = document.querySelector('input[value="pack_2"]');
+
+        if (pack1Text && pack2Text && pack2Container) {
+            if (gameDef.type === 'power') {
+                // 威力彩：二區包牌 / 彈性包牌
+                pack1Text.innerText = "🔒 二區包牌";
+                pack2Text.innerText = "🌀 彈性包牌";
+                pack2Container.classList.remove('hidden');
+            } else if (gameDef.type === 'digit') {
+                // 3星/4星：強勢包牌 / 彈性包牌
+                pack1Text.innerText = "🔥 強勢包牌";
+                pack2Text.innerText = "🌀 彈性包牌";
+                pack2Container.classList.remove('hidden');
+            } else {
+                // 大樂透/539：標準包牌 (隱藏彈性包牌)
+                pack1Text.innerText = "🔒 標準包牌";
+                pack2Container.classList.add('hidden');
+                // 防呆：如果當前選中已隱藏的按鈕，自動切回嚴選
+                if (pack2Input && pack2Input.checked) {
+                    document.querySelector('input[value="strict"]').checked = true;
+                }
+            }
+        }
+
         if (this.state.filterPeriod) {
             data = data.filter(item => String(item.period).includes(this.state.filterPeriod));
         }
@@ -578,7 +606,6 @@ const App = {
         document.getElementById('latest-period').innerText =
             data.length > 0 ? `${data[0].period}期` : "--期";
 
-        // (註解掉舊的獎金顯示，因為已經移入 renderSubModeUI)
         const jackpotContainer = document.getElementById('jackpot-container');
         if (jackpotContainer) jackpotContainer.classList.add('hidden');
 
@@ -831,16 +858,16 @@ const App = {
         if (!gameDef) return;
 
         const modeInput = document.querySelector('input[name="count"]:checked');
-        const mode = modeInput ? modeInput.value : 'strict';
+        const mode = modeInput ? modeInput.value : 'strict'; // strict, random, pack_1, pack_2
 
         const container = document.getElementById('prediction-output');
         container.innerHTML = '';
         document.getElementById('result-area').classList.remove('hidden');
 
-        // 設定參數：包牌模式需先跑 3 輪湊滿 10-15 個號碼，一般模式固定 5 注
+        // 設定參數
         const isRandom = (mode === 'random');
-        const isPack   = (mode === 'pack');
-        const count    = isPack ? 3 : 5; 
+        const isPack   = (mode.startsWith('pack')); // pack_1 或 pack_2 都是包牌
+        const count    = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
         const school   = this.state.currentSchool;
         
         // 全域排除集合 & 包牌專用暫存池
@@ -848,8 +875,6 @@ const App = {
         const packPool = [];
 
         for (let i = 0; i < count; i++) {
-            // [修改] 傳入 excludeNumbers, random 以及 setIndex (即迴圈索引 i)
-            // setIndex 用於嚴選模式下的「輪轉」與「排名偏移」
             const params = { 
                 data, 
                 gameDef, 
@@ -884,7 +909,6 @@ const App = {
                     if (isRandom) {
                         rankLabel = `<span class="text-amber-600">🎲 隨機推薦 ${i+1}</span>`;
                     } else {
-                        // 嚴選模式顯示排名結構
                         if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
                         else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
                         else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
@@ -893,15 +917,17 @@ const App = {
                     this.renderRow(result, i + 1, rankLabel);
                 }
                 
-                // 包牌模式：若池子夠了就提早結束
+                // 包牌模式：若池子夠了就提早結束 (12個夠用了)
                 if (isPack && packPool.length >= 12) break;
             }
         }
 
         // 包牌模式的後續處理
         if (isPack) {
-            const finalPool = [...new Set(packPool)].slice(0, 10).sort((a,b)=>a-b);
-            this.algoSmartWheel(data, gameDef, finalPool);
+            // 取前 12 個不重複號碼作為包牌池 (大樂透/威力彩需要較多)
+            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
+            // [修改] 將 mode (pack_1/pack_2) 傳遞給包牌模組
+            this.algoSmartWheel(data, gameDef, finalPool, mode);
         }
     },
 
@@ -956,9 +982,9 @@ const App = {
             groupReason: `💡 流年格局：[${dominant}] 主導。`
         };
     },
-algoSmartWheel(data, gameDef, pool) {
-        // [修改] 呼叫外部 import 的函式，並傳入 pool (候選號碼池)
-        const results = algoSmartWheel(data, gameDef, pool);
+algoSmartWheel(data, gameDef, pool, packMode) {
+        // [修改] 傳入 packMode ('pack_1' or 'pack_2')
+        const results = algoSmartWheel(data, gameDef, pool, packMode);
         
         if (!results || results.length === 0) {
             document.getElementById('prediction-output').innerHTML = 
@@ -1072,6 +1098,7 @@ algoSmartWheel(data, gameDef, pool) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
