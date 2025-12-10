@@ -72,7 +72,11 @@ const SORT_KEY = Symbol('sortKey');
 const _cacheStore = new Map();
 const MAX_CACHE_SIZE = 10;
 
-// 內部日誌工具
+// [重要修復] 補回內部日誌工具
+const log = (...args) => {
+    if (PATTERN_CONFIG.DEBUG_MODE) console.log(...args);
+};
+
 /**
  * 主入口函數
  * @param {Object} params
@@ -563,3 +567,4 @@ function getWeightedHotNumbers(data, range, needed, excludeSet) {
         .filter(n => !excludeSet.has(n)) // [修改] 這裡原本是 excludeSet，現在邏輯一致了
         .slice(0, needed);
 }
+
