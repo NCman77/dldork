@@ -958,7 +958,27 @@ const App = {
             groupReason: `💡 流年格局：[${dominant}] 主導。`
         };
     },
+algoSmartWheel(data, gameDef, pool) {
+        // [修改] 呼叫外部 import 的函式，並傳入 pool (候選號碼池)
+        const results = algoSmartWheel(data, gameDef, pool);
+        
+        if (!results || results.length === 0) {
+            document.getElementById('prediction-output').innerHTML = 
+                '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
+            return;
+        }
 
+        results.forEach((res, idx) =>
+            this.renderRow(
+                {
+                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
+                    groupReason: res.groupReason
+                },
+                idx + 1,
+                `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
+            )
+        );
+    },
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
         const colors = {
@@ -1054,6 +1074,7 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
