@@ -823,7 +823,7 @@ const App = {
             .classList.toggle('hidden', school !== 'wuxing');
     },
 
-    // ================= 學派入口：runPrediction =================
+// ================= 學派入口：runPrediction =================
     runPrediction() {
         const gameName = this.state.currentGame;
         const gameDef  = GAME_CONFIG.GAMES[gameName];
@@ -842,9 +842,13 @@ const App = {
 
         const count  = parseInt(countVal, 10);
         const school = this.state.currentSchool;
-        const params = { data, gameDef, subModeId: this.state.currentSubMode };
+        
+        // [修改] 建立全域排除集合，用於分層排除
+        const excludeSet = new Set();
 
         for (let i = 0; i < count; i++) {
+            // [修改] 將 excludeNumbers 傳入 params
+            const params = { data, gameDef, subModeId: this.state.currentSubMode, excludeNumbers: excludeSet };
             let result = null;
 
             switch (school) {
@@ -868,10 +872,22 @@ const App = {
             if (result) {
                 // 如果你暫時不想要 fallback，可以直接刪掉這段 monteCarlo 判斷
                 if (!monteCarloSim(result.numbers, gameDef)) {
-                    // 例如這裡原本會 fallback 到統計：
                     // result = algoStat(params);
                 }
-                this.renderRow(result, i + 1);
+
+                // [修改] 將本輪選出的號碼加入排除名單 (防止下一注重複)
+                result.numbers.forEach(n => excludeSet.add(n.val));
+
+                // [修改] 定義標籤名稱
+                let rankLabel = `SET ${i + 1}`;
+                if (count > 1) {
+                    if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
+                    else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
+                    else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
+                    else rankLabel = `<span class="text-stone-400">🛡️ 補位組合</span>`;
+                }
+
+                this.renderRow(result, i + 1, rankLabel);
             }
         }
     },
@@ -1033,4 +1049,5 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
