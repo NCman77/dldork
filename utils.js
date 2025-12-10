@@ -276,9 +276,10 @@ export async function fetchLiveLotteryData() {
                             if (numsSize.length > 0 || numsAppear.length > 0) {
                                 liveData[gameName].push({
                                     date: dateStr,
-                                    period: String(item.period),
                                     numbers: numsAppear.length > 0 ? numsAppear : numsSize,
                                     numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                    // [新增] 抓取累積獎金 (totalAmount) - 這是備援區塊
+                                    jackpot: item.totalAmount || 0,
                                     source: 'live_api'
                                 });
                             }
@@ -579,5 +580,6 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
 
