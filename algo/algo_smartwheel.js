@@ -23,7 +23,7 @@ export function algoSmartWheel(data, gameDef, pool) {
         for (let i = 1; i <= 8; i++) {
             results.push({
                 numbers: [...zone1, i],
-                groupReason: `💡 第二區全包保底 (0${i}) - 搭配前${zone1.length}強號`
+                groupReason: `第二區全包保底 (0${i}) - 搭配前${zone1.length}強號`
             });
         }
     } 
@@ -42,7 +42,7 @@ export function algoSmartWheel(data, gameDef, pool) {
                 const set = [bestNums[p[0]], bestNums[p[1]], bestNums[p[2]]];
                 results.push({
                     numbers: set,
-                    groupReason: `💡 正彩複式 - 強號 ${bestNums.join(',')} 排列`
+                    groupReason: `正彩複式 - 強號 ${bestNums.join(',')} 排列`
                 });
             });
         } else {
@@ -53,7 +53,7 @@ export function algoSmartWheel(data, gameDef, pool) {
                 set.push(...shift);
                 results.push({
                     numbers: set,
-                    groupReason: `💡 正彩複式 - 循環排列組合`
+                    groupReason: `正彩複式 - 循環排列組合`
                 });
             }
         }
@@ -62,7 +62,6 @@ export function algoSmartWheel(data, gameDef, pool) {
     // 策略：隨機組合 (從 10 碼 Pool 中取 C10取N)
     else {
         // 我們的目標是產生約 5 注精選
-        // 這裡採用「隨機選取」策略，但範圍限定在 Pool (10碼) 內
         const targetCount = 5; 
         for (let k = 0; k < targetCount; k++) {
             // 使用 Fisher-Yates 洗牌從 Pool 中抓取
@@ -75,7 +74,7 @@ export function algoSmartWheel(data, gameDef, pool) {
             
             results.push({
                 numbers: set,
-                groupReason: `💡 聰明包牌 - 從 ${pool.length} 碼強號池中優選`
+                groupReason: `聰明包牌 - 從 ${pool.length} 碼強號池中優選`
             });
         }
     }
