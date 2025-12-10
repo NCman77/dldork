@@ -56,12 +56,12 @@ const PATTERN_CONFIG = {
     }
 };
 
-// 3星彩策略定義 (明確定義每個位置的排名選擇)
-const DIGIT3_STRATEGIES = {
-    default: { name: '綜合熱門', picks: [0, 0, 0], sumOpt: true },
-    aggressive: { name: '激進趨勢', picks: [0, 0, 0], sumOpt: false },
-    conservative: { name: '次熱避險', picks: [1, 1, 1], sumOpt: true },
-    balanced: { name: '分散配置', picks: [0, 2, 0], sumOpt: true }
+// 3星彩/4星彩 策略定義 (Phase 6: 位數獨立)
+const DIGIT_STRATEGIES = {
+    default: { name: '綜合熱門', sumOpt: true },
+    aggressive: { name: '激進趨勢', sumOpt: false },
+    conservative: { name: '次熱避險', sumOpt: true },
+    balanced: { name: '分散配置', sumOpt: true }
 };
 
 // 內部使用的 Symbol 鍵
@@ -79,7 +79,7 @@ const log = (...args) => {
 /**
  * 主入口函數
  * @param {Object} params
- * @param {Number} [params.setIndex=0] - [新增] 組數索引，用於嚴選模式的輪轉與偏移
+ * @param {Number} [params.setIndex=0] - 組數索引
  */
 export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set(), random = false, setIndex = 0 }) {
     log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 隨機: ${random} | Set: ${setIndex}`);
@@ -94,8 +94,8 @@ export function algoPattern({ data, gameDef, subModeId, strategy = 'default', ex
     if (gameDef.type === 'lotto' || gameDef.type === 'power') {
         result = handleComboPatternV4(validData, gameDef, excludeNumbers, random, setIndex);
     } else if (gameDef.type === 'digit') {
-        // [修正] 傳遞 setIndex 給數字型處理函式，用於排名偏移
-        result = handleDigitPatternV4(validData, gameDef, strategy, random, setIndex);
+        // [Phase 6] 統一使用位數獨立邏輯
+        result = handleDigitPatternV6(validData, gameDef, strategy, random, setIndex);
     } else {
         return { numbers: [], groupReason: "❌ 不支援的玩法類型" };
     }
@@ -203,7 +203,7 @@ function generateWeightedDragMapCached(data, periods) {
 }
 
 // ============================================
-// 2. 組合型核心邏輯 (Phase 4 最終版：連續檢查 + Zone 2 輪轉)
+// 2. 組合型核心邏輯 (Phase 6: 熵值檢測 + Fisher-Yates)
 // ============================================
 
 function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex) {
@@ -220,9 +220,9 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
     const checkSet = new Set(excludeNumbers);
     const stats = { drag: 0, neighbor: 0, tail: 0, hot: 0 };
 
-    // [Helper] 連續數字檢查 (避免出現 3,4,5,6 這種爛牌)
+    // [Helper] 連續數字檢查 (避免 3,4,5,6)
     const isConsecutiveSafe = (currentList, newNum) => {
-        if (isRandom) return true; // 隨機模式不限制，增加趣味
+        // 即使是隨機模式，也要避免過度連續，保持號碼美觀
         const nums = [...currentList.map(x => x.val), newNum].sort((a,b)=>a-b);
         let maxCons = 1, currentCons = 1;
         for(let i=1; i<nums.length; i++) {
@@ -230,7 +230,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
             else currentCons = 1;
             maxCons = Math.max(maxCons, currentCons);
         }
-        return maxCons <= 3; // 最多允許 3 連號 (如 3,4,5)，超過則視為不佳
+        return maxCons <= 3; // 最多允許 3 連號
     };
 
     // [Helper] 隨機擾動
@@ -244,7 +244,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     // [Helper] Fisher-Yates 洗牌
     const shuffle = (arr) => {
-        if (!isRandom) return arr;
+        // 嚴選模式不洗牌，除非強制要求
         const res = [...arr];
         for (let i = res.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -259,7 +259,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     for (const cand of dragCandidates) {
         if (result.length >= allocation.drag) break;
-        if (!selected.has(cand.num) && isConsecutiveSafe(result, cand.num)) {
+        if (!selected.has(cand.num)) {
             selected.add(cand.num);
             checkSet.add(cand.num);
             result.push({ val: cand.num, tag: `${cand.from}拖` });
@@ -269,11 +269,12 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     // Phase B: 鄰號
     let neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, checkSet);
-    neighborCandidates = shuffle(neighborCandidates);
+    // 鄰號無權重，隨機模式下必須洗牌
+    if (isRandom) neighborCandidates = shuffle(neighborCandidates);
 
     for (const n of neighborCandidates) {
         if (result.length >= allocation.drag + allocation.neighbor) break;
-        if (!selected.has(n.num) && isConsecutiveSafe(result, n.num)) {
+        if (!selected.has(n.num)) {
             selected.add(n.num);
             checkSet.add(n.num);
             result.push({ val: n.num, tag: `${n.from}鄰` });
@@ -287,7 +288,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     for (const t of tailCandidates) {
         if (result.length >= count) break;
-        if (!selected.has(t.num) && isConsecutiveSafe(result, t.num)) {
+        if (!selected.has(t.num)) {
             selected.add(t.num);
             checkSet.add(t.num);
             result.push({ val: t.num, tag: `${t.tail}尾` });
@@ -295,12 +296,18 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
         }
     }
 
-    // Phase D: 熱號回補
+    // Phase D: 熱號回補 (關鍵修正)
     if (result.length < count) {
         const needed = count - result.length;
-        const buffer = needed * 4; // 擴大緩衝區，便於過濾連續號
+        // 抓取大量候選，方便過濾連續號
+        const buffer = needed * 5; 
         let hotNumbers = getWeightedHotNumbers(data, range, buffer, checkSet);
-        if (isRandom) hotNumbers = shuffle(hotNumbers);
+        
+        // [熵值檢測] 如果號碼是連續的 (1,2,3...)，代表權重無效，強制洗牌
+        const isLowEntropy = hotNumbers.slice(0, 5).every((n, i) => n === hotNumbers[0] + i);
+        if (isLowEntropy || isRandom) {
+            hotNumbers = shuffle(hotNumbers);
+        }
         
         for (const n of hotNumbers) {
             if (stats.hot >= needed) break;
@@ -321,7 +328,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
     const reasonPrefix = isRandom ? "隨機結構" : "嚴選結構";
     const groupReason = `${reasonPrefix}：${structStr.join('/')}`;
 
-    // 4. 第二區 (威力彩) - [修正] 輪轉與隨機並存
+    // 4. 第二區 (威力彩) - Top 3 隨機 / 輪轉
     if (zone2) {
         const z2Cands = selectZone2Strict(data, zone2); 
         let z2Pick;
@@ -333,9 +340,8 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
             z2Pick = { ...top3[rndIdx], tag: `Z2(隨機)` }; 
         } else {
             // 嚴選模式：依照 setIndex 輪轉 (第1注選第1名, 第2注選第2名...)
-            // 使用 % 運算確保不會超出範圍 (例如前5名輪轉)
             const pickIdx = setIndex % Math.min(5, z2Cands.length);
-            z2Pick = z2Cands[pickIdx];
+            z2Pick = z2Cands[pickIdx] || z2Cands[0];
         }
 
         return { 
@@ -542,81 +548,65 @@ function selectZone2Strict(data, zone2Range) {
     }
 
     candidates.sort((a, b) => b.score - a.score);
-    // 回傳完整陣列供選擇
     return candidates.map(c => ({ val: c.num, tag: `Z2(G${c.gap})` }));
 }
 
-function handleDigitPatternV4(data, gameDef, strategy = 'default', isRandom = false, setIndex = 0) {
-    const { count, id } = gameDef;
-    if (count === 3 && (id === '3d' || id === '3star')) {
-        return execute3StarStrategy(data, strategy, isRandom, setIndex);
-    }
-    return executePositionalStrategy(data, count, strategy, isRandom, setIndex);
-}
-
-/**
- * 3星彩多策略執行器 (Phase 4: 支援隨機 + 排名偏移)
- */
-function execute3StarStrategy(data, strategyName, isRandom, setIndex) {
-    const config = DIGIT3_STRATEGIES[strategyName] || DIGIT3_STRATEGIES.default;
+// [Phase 6] 統一使用位數獨立邏輯 (支援 3星/4星)
+function handleDigitPatternV6(data, gameDef, strategy = 'default', isRandom = false, setIndex = 0) {
+    const { count } = gameDef;
+    const config = DIGIT_STRATEGIES[strategy] || DIGIT_STRATEGIES.default;
     
-    // 計算各位置頻率排名
-    const posStats = [0, 1, 2].map(pos => {
-        const counts = new Array(10).fill(0);
-        data.slice(0, 50).forEach(d => {
-            if (d.numbers.length > pos) {
-                const n = d.numbers[pos];
-                if (n >= 0 && n <= 9) counts[n]++;
+    // 1. 位數獨立統計 (Independent Positional Stats)
+    // 建立 3 或 4 個獨立的統計桶
+    const posStats = Array.from({ length: count }, () => new Array(10).fill(0));
+    
+    data.slice(0, 50).forEach(d => {
+        // 確保該期資料長度足夠
+        if (d.numbers.length >= count) {
+            for(let i=0; i<count; i++) {
+                const n = d.numbers[i];
+                if (n >= 0 && n <= 9) posStats[i][n]++;
             }
-        });
-        
+        }
+    });
+
+    // 2. 每個位置獨立排序 (從熱到冷)
+    const rankedPos = posStats.map(counts => {
         let sorted = counts.map((c, n) => ({ n, c })).sort((a, b) => b.c - a.c);
         
-        // [隨機模式] 對前 5 名進行擾動重排
+        // [隨機模式] 對前 5 名進行加權擾動
         if (isRandom) {
             const top5 = sorted.slice(0, 5);
             const shuffled = top5.map(item => ({
                 ...item,
-                _noise: item.c * (0.7 + Math.random() * 0.6) // 擴大擾動範圍
+                _noise: item.c * (0.8 + Math.random() * 0.4) // 擾動
             })).sort((a, b) => b._noise - a._noise);
             sorted = [...shuffled, ...sorted.slice(5)];
         }
-        
         return sorted;
     });
 
-    // 根據 picks 陣列選擇號碼 (加入 setIndex 偏移)
-    let combo = [];
-    for(let i=0; i<3; i++) {
-        const baseRankIdx = config.picks[i]; 
-        
-        // [修正] 嚴選模式下，使用 setIndex 進行排名偏移 (Rank Shift)
-        // 例如第1注選第1名，第2注選第2名
-        const actualRankIdx = isRandom 
-            ? baseRankIdx 
-            : (baseRankIdx + setIndex) % 5; // 在前5名內輪轉
+    // 3. 選號 (加入 SetIndex 偏移)
+    const result = [];
+    const pickIndex = (strategy === 'conservative') ? 1 : 0; // 次熱避險選第2名
 
-        const candidate = posStats[i][actualRankIdx] || posStats[i][0];
-        combo.push(candidate.n);
+    for(let i=0; i<count; i++) {
+        // 嚴選模式：Set 1 選第1名, Set 2 選第2名... (在 Top 5 內輪轉)
+        // 隨機模式：因為已經擾動過了，直接選第 1 名即可
+        const actualIdx = isRandom 
+            ? pickIndex 
+            : (pickIndex + setIndex) % 5;
+            
+        const pick = rankedPos[i][actualIdx] || rankedPos[i][0];
+        result.push({ val: pick.n, tag: `Pos${i+1}` });
     }
 
-    // 和值優化 (隨機模式下跳過)
-    if (config.sumOpt && !isRandom && setIndex === 0) {
-        let sum = combo.reduce((a, b) => a + b, 0);
-        if (sum < 10) {
-            const better = posStats[1].find(x => combo[0] + x.n + combo[2] >= 10);
-            if (better) combo[1] = better.n;
-        } else if (sum > 20) {
-            const better = posStats[1].find(x => combo[0] + x.n + combo[2] <= 20);
-            if (better) combo[1] = better.n;
-        }
-    }
-
+    // [關鍵] 數字型遊戲絕對不排序！(921 != 129)
     const reasonPrefix = isRandom ? "隨機" : "嚴選";
-    return {
-        numbers: combo.map((n, i) => ({ val: n, tag: config.name })),
-        groupReason: `${reasonPrefix} V4.2 ${config.name}`,
-        metadata: { strategy: strategyName, picks: config.picks } 
+    return { 
+        numbers: result, // 原順序回傳
+        groupReason: `${reasonPrefix} V4.2 位數統計`,
+        metadata: { setIndex }
     };
 }
 
@@ -638,47 +628,5 @@ function getWeightedHotNumbers(data, range, needed, checkSet) {
         .slice(0, needed);
 }
 
-// [緊急修復] 補回 4星彩 邏輯 (Phase 4: 支援隨機 + 排名偏移)
-function executePositionalStrategy(data, count, strategy, isRandom, setIndex) {
-    const result = [];
-    const pickIndex = strategy === 'conservative' ? 1 : 0; 
-
-    for(let i=0; i<count; i++) {
-        const stats = new Array(10).fill(0);
-        data.slice(0, 50).forEach(d => {
-            if (d.numbers.length > i) {
-                const n = d.numbers[i];
-                if (n >= 0 && n <= 9) stats[n]++;
-            }
-        });
-        
-        let sorted = stats.map((c, n) => ({n, c})).sort((a,b) => b.c - a.c);
-        
-        // [隨機模式] 擾動
-        if (isRandom) {
-            const top5 = sorted.slice(0, 5);
-            const shuffled = top5.map(item => ({
-                ...item,
-                _noise: item.c * (0.7 + Math.random() * 0.6)
-            })).sort((a, b) => b._noise - a._noise);
-            sorted = [...shuffled, ...sorted.slice(5)];
-        }
-                
-        // [嚴選模式] 偏移
-        const actualPickIndex = isRandom 
-            ? pickIndex 
-            : (pickIndex + setIndex) % 5;
-
-        const pick = sorted[actualPickIndex] || sorted[0];
-        result.push({ val: pick.n, tag: `Pos${i+1}` });
-    }
-    
-    const reasonPrefix = isRandom ? "隨機" : "嚴選";
-    return { 
-        numbers: result, 
-        groupReason: strategy === 'conservative' ? `${reasonPrefix} 次熱位置` : `${reasonPrefix} 熱門位置`,
-        metadata: { pickIndex }
-    };
-}
 
 
