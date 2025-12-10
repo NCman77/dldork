@@ -434,6 +434,18 @@ const App = {
             const liveData = await fetchLiveLotteryData();
 
             if (liveData && Object.keys(liveData).length > 0) {
+                // [新增邏輯] 從 Live Data 更新累積獎金 (取最新一期的 jackpot)
+                for (const game in liveData) {
+                    if (liveData[game].length > 0) {
+                        // 確保排序是新的在前面
+                        const sorted = liveData[game].sort((a, b) => new Date(b.date) - new Date(a.date));
+                        const latest = sorted[0];
+                        if (latest.jackpot && latest.jackpot > 0) {
+                            this.state.rawJackpots[game] = latest.jackpot;
+                        }
+                    }
+                }
+
                 const finalData = mergeLotteryData(
                     { games: baseData },
                     zipResults,
@@ -1021,3 +1033,4 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
