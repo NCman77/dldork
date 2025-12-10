@@ -1,7 +1,7 @@
 /**
  * game_config.js
  * 存放遊戲定義、規則文字、玩法選項等靜態資料
- * V27.0：更新關聯學派說明，匹配 V4.2 多策略引擎特性
+ * 包含：標準型(lotto)、雙區型(power)、數字型(digit) 的區分
  */
 
 export const GAME_CONFIG = {
@@ -140,27 +140,24 @@ export const GAME_CONFIG = {
         },
         pattern: { 
             color: "border-school-pattern", 
-            title: "關聯學派 (V4.2)", 
+            title: "關聯學派", 
             desc: `
                 <div>
-                    <span class="font-bold text-school-pattern block mb-1 text-sm">核心策略 (V4.2)：</span>
-                    <p class="text-justify leading-relaxed text-stone-600 text-sm">工業級關聯分析。搭載 <strong>V4.2 多策略引擎</strong>，結合加權拖牌、鄰號慣性與 Z-Score 尾數檢定，支援「激進/保守/平衡」戰術切換。</p>
+                    <span class="font-bold text-school-pattern block mb-1 text-sm">核心策略：</span>
+                    <p class="text-justify leading-relaxed text-stone-600 text-sm">捕捉號碼間的隱形連結。分析上期獎號的「拖牌效應」與「尾數連動」，預測版路的下一個落點。</p>
                 </div>
                 <details class="mt-3 group">
                     <summary class="cursor-pointer font-bold text-school-pattern text-sm list-none flex items-center gap-2 transition-all hover:opacity-80">
                         <span>▶ 混合算法 (Logic Mix)：</span>
                     </summary>
                     <div class="mt-2 pl-3 text-xs text-stone-500 space-y-2 border-l-2 border-school-pattern">
-                        <p>1. 加權拖牌矩陣 (Weighted Drag Map)：引入時間衰退與 Laplace 平滑，精準計算號碼間的引力。</p>
-                        <p>2. Z-Score 尾數檢定：使用 1.96 標準差過濾假熱號，找出真正的統計顯著尾數。</p>
-                        <p>3. 多策略戰術 (Multi-Strategy)：
-                           <br>• <strong>Default/Balanced</strong>：熱門+和值優化
-                           <br>• <strong>Aggressive</strong>：純粹追擊趨勢
-                           <br>• <strong>Conservative</strong>：鎖定次熱門避險
-                        </p>
+                        <p>1. 條件機率矩陣：鎖定「上一期 (Last Draw)」號碼作為種子。</p>
+                        <p>2. 拖牌權重 (Drag Weight)：若某號碼是上一期的開獎號，權重 +20 (賭連莊)。</p>
+                        <p>3. 鄰號效應 (Neighbor Effect)：若某號碼是上一期號碼的左右鄰居 (如上期開 05，則 04, 06 加分)，權重 +15。</p>
+                        <p>4. 尾數群聚分析：分析號碼的個位數 (Mod 10)，判斷是否與上期尾數相同。</p>
                         <div class="mt-2 pt-2 border-t border-stone-200">
                             <span class="font-bold text-red-500">🔴 證據顯示 (Tag)：</span>
-                            <p class="mt-1">15→28(5.2%)：拖牌機率。<br>7尾(Z:2.1)：Z-Score 統計強度。<br>05鄰號：鄰近號碼效應。</p>
+                            <p class="mt-1">連莊強勢：直指該號碼為上期重覆號。<br>05鄰號：明確指出是因為鄰近 05 而被選中。<br>3尾群聚：指出該號碼符合特定的尾數規律。</p>
                         </div>
                     </div>
                 </details>
