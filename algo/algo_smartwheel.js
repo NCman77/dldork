@@ -1,119 +1,126 @@
 /**
  * algo_smartwheel.js
- * 聰明包牌模組 (Bridge Mode) - Phase 5 最終版
- * 核心邏輯：接收外部傳入的「強號池 (Pool)」與「模式 (packMode)」，執行雙軌策略。
- * * 支援模式：
- * 1. pack_1 (標準/二區/強勢)：鎖定強號，強調保底與排列。
- * 2. pack_2 (彈性/隨機)：滑動視窗或循環輪轉，強調覆蓋率與變化性。
+ * 聰明包牌模組 (Phase 6 最終版)
+ * 核心邏輯：雙軌策略 (標準/強勢 vs 彈性/隨機)
  */
 
 export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
     let results = [];
     
-    // 防呆：確保 pool 存在且為陣列
     if (!Array.isArray(pool) || pool.length === 0) {
         return [];
     }
 
     // ==========================================
-    // 1. 威力彩 (Power) - 雙軌策略
+    // 1. 威力彩 (Power)
     // ==========================================
     if (gameDef.type === 'power') {
-        // [策略 A] 二區包牌 (pack_1): 鎖定最強 6 碼，第二區全包
+        // [策略 A] 二區包牌 (pack_1): 鎖定最強 6 碼
         if (packMode === 'pack_1') {
-            // 取前 6 碼固定
             const zone1 = pool.slice(0, 6).sort((a, b) => a - b);
-            if (zone1.length < 6) return []; // 號碼不足
+            if (zone1.length < 6) return []; 
 
             for (let i = 1; i <= 8; i++) {
                 results.push({
                     numbers: [...zone1, i],
-                    groupReason: `二區全包保底 (0${i}) - 第一區鎖定強號`
+                    groupReason: `二區包牌 (0${i}) - 第一區鎖定`
                 });
             }
         } 
-        // [策略 B] 彈性包牌 (pack_2): 滑動視窗，第二區全包
+        // [策略 B] 彈性包牌 (pack_2): 區段輪轉 (Segment Rotation)
+        // 避免滑動視窗造成的重疊，改用跳躍組合
         else {
-            // 使用滑動視窗，產生 8 注不同的第一區
-            // Pool 建議至少 10~12 碼，若不足則循環使用
-            for (let i = 1; i <= 8; i++) {
-                const set = [];
-                for (let k = 0; k < 6; k++) {
-                    // 滑動邏輯：(i + k) 位移
-                    const idx = (i - 1 + k) % pool.length;
-                    set.push(pool[idx]);
-                }
-                set.sort((a, b) => a - b);
+            // 將 Pool 分為 4 個區段 (每段 3 碼，共 12 碼)
+            // 如果 Pool 不足 12 碼，循環補足
+            const extendedPool = [...pool, ...pool].slice(0, 12);
+            const segA = extendedPool.slice(0, 3);
+            const segB = extendedPool.slice(3, 6);
+            const segC = extendedPool.slice(6, 9);
+            const segD = extendedPool.slice(9, 12);
 
+            // 產生 8 種不同的組合 (A+B, C+D, A+C...)
+            const combos = [
+                [...segA, ...segB], // 1
+                [...segC, ...segD], // 2
+                [...segA, ...segC], // 3
+                [...segB, ...segD], // 4
+                [...segA, ...segD], // 5
+                [...segB, ...segC], // 6
+                // 混合跳躍
+                [segA[0], segB[1], segC[2], segD[0], segA[1], segB[2]], // 7
+                [segC[0], segD[1], segA[2], segB[0], segC[1], segD[2]]  // 8
+            ];
+
+            for (let i = 0; i < 8; i++) {
+                const set = combos[i % combos.length].sort((a,b)=>a-b);
                 results.push({
-                    numbers: [...set, i],
-                    groupReason: `彈性滑動包牌 (0${i}) - 第一區動態組合`
+                    numbers: [...set, i + 1],
+                    groupReason: `彈性輪轉包牌 (0${i+1}) - 區段跳躍`
                 });
             }
         }
     } 
     // ==========================================
-    // 2. 數字型 (3星/4星) - 雙軌策略
+    // 2. 數字型 (3星/4星)
     // ==========================================
     else if (gameDef.type === 'digit') {
         const count = gameDef.count;
-        const bestNums = pool.slice(0, count);
+        const bestNums = pool.slice(0, count); // 這裡的 pool 已經是位數最佳解 (5,8,3)
         
         if (bestNums.length < count) return []; 
 
         // [策略 A] 強勢包牌 (pack_1): 複式排列 (Permutation)
-        // 鎖定最強的幾個號碼，買光它們的排列組合
+        // 鎖定最強的號碼，買光排列
         if (packMode === 'pack_1') {
             if (count === 3) {
-                // 3星彩：6 組全排列
                 const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
                 perms.forEach(p => {
                     const set = [bestNums[p[0]], bestNums[p[1]], bestNums[p[2]]];
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 強號 ${bestNums.join(',')} 鎖定排列`
+                        groupReason: `正彩複式 - 鎖定排列`
                     });
                 });
             } else {
-                // 4星彩：5 組循環移位 (全排列 24 組太多，取精選)
+                // 4星彩循環移位
                 for(let i=0; i<5; i++) {
                     const set = [...bestNums];
                     const shift = set.splice(0, i % 4);
                     set.push(...shift);
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 強號循環排列`
+                        groupReason: `正彩複式 - 循環排列`
                     });
                 }
             }
         }
-        // [策略 B] 彈性包牌 (pack_2): 循環輪轉 (Rotation)
-        // 從 Pool 中輪流抓號碼，每一注的號碼組成都不一樣
+        // [策略 B] 彈性包牌 (pack_2): 分組取號 (Chunking)
+        // 每一注都拿完全不同的號碼，不重疊
         else {
-            const targetCount = 5; // 產生 5 注
+            const targetCount = 5; 
             for (let i = 0; i < targetCount; i++) {
                 const set = [];
                 for (let k = 0; k < count; k++) {
-                    // 偏移取號
-                    const idx = (i + k) % pool.length;
+                    // 直接從 Pool 中依序抓取，確保不重複
+                    // Pool 來自 app.js 收集的 Set1, Set2, Set3...
+                    const idx = (i * count + k) % pool.length;
                     set.push(pool[idx]);
                 }
-                // 數字型不排序，保留位置特性
+                // 數字型絕對不排序
                 results.push({
                     numbers: set,
-                    groupReason: `強號池輪轉 - 組合 ${i+1}`
+                    groupReason: `彈性分組 - 組合 ${i+1}`
                 });
             }
         }
     } 
     // ==========================================
-    // 3. 樂透型 (大樂透/539) - 標準策略
+    // 3. 樂透型 (大樂透/539)
     // ==========================================
     else {
-        // 單一模式：從 Pool 中隨機優選 (因為大樂透沒有分區，標準包牌即為聰明組合)
         const targetCount = 5; 
         for (let k = 0; k < targetCount; k++) {
-            // 使用 Fisher-Yates 洗牌從 Pool 中抓取
+            // Fisher-Yates 洗牌
             const shuffled = [...pool];
             for (let i = shuffled.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -123,7 +130,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
             
             results.push({
                 numbers: set,
-                groupReason: `聰明包牌 - 從 ${pool.length} 碼強號池中優選`
+                groupReason: `聰明包牌 - 優選組合`
             });
         }
     }
