@@ -566,15 +566,22 @@ const App = {
         document.getElementById('latest-period').innerText =
             data.length > 0 ? `${data[0].period}期` : "--期";
 
+        // (註解掉舊的獎金顯示，因為已經移入 renderSubModeUI)
         const jackpotContainer = document.getElementById('jackpot-container');
-        if (this.state.rawJackpots[gameName] && !this.state.filterPeriod) {
-            jackpotContainer.classList.remove('hidden');
-            document.getElementById('jackpot-amount').innerText =
-                `$${this.state.rawJackpots[gameName]}`;
-        } else {
-            jackpotContainer.classList.add('hidden');
-        }
-// [新增函式] 計算下期開獎日
+        if (jackpotContainer) jackpotContainer.classList.add('hidden');
+
+        this.renderSubModeUI(gameDef);
+        this.renderHotStats('stat-year', data);
+        this.renderHotStats('stat-month', data.slice(0, 30));
+        this.renderHotStats('stat-recent', data.slice(0, 10));
+        document.getElementById('no-result-msg')
+            .classList.toggle('hidden', data.length > 0);
+
+        this.renderDrawOrderControls();
+        this.renderHistoryList(data.slice(0, 5));
+    },
+
+    // [Step 1: 移動 getNextDrawDate 到正確位置]
     getNextDrawDate(drawDays) {
         if (!drawDays || drawDays.length === 0) return "--";
         const today = new Date();
@@ -601,16 +608,6 @@ const App = {
         const weekMap = ['日', '一', '二', '三', '四', '五', '六'];
         
         return `${y}/${m}/${d} (${weekMap[nextDate.getDay()]})`;
-    },
-        this.renderSubModeUI(gameDef);
-        this.renderHotStats('stat-year', data);
-        this.renderHotStats('stat-month', data.slice(0, 30));
-        this.renderHotStats('stat-recent', data.slice(0, 10));
-        document.getElementById('no-result-msg')
-            .classList.toggle('hidden', data.length > 0);
-
-        this.renderDrawOrderControls();
-        this.renderHistoryList(data.slice(0, 5));
     },
 
     renderDrawOrderControls() {
@@ -650,13 +647,14 @@ const App = {
         this.updateDashboard();
     },
 
+    // [Step 2: 修正 renderSubModeUI，清理殘留代碼]
     renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
         const gameName = this.state.currentGame;
 
-        // 總是顯示區域，因為我們現在都有東西要顯示 (規則按鈕或資訊卡)
+        // 總是顯示區域
         area.classList.remove('hidden');
         rulesContent.classList.add('hidden'); // 預設隱藏規則內容
         container.innerHTML = ''; // 清空容器
@@ -708,12 +706,8 @@ const App = {
                 `;
             }
         }
+        
         rulesContent.innerHTML = gameDef.article || "暫無說明";
-    },
-        } else {
-            area.classList.add('hidden');
-            this.state.currentSubMode = null;
-        }
     },
 
     toggleRules() {
@@ -1027,4 +1021,3 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
-
