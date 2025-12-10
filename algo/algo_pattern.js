@@ -73,10 +73,6 @@ const _cacheStore = new Map();
 const MAX_CACHE_SIZE = 10;
 
 // 內部日誌工具
-const log = (...args) => {
-    if (PATTERN_CONFIG.DEBUG_MODE) console.log(...args);
-};
-
 /**
  * 主入口函數
  * @param {Object} params
@@ -84,8 +80,9 @@ const log = (...args) => {
  * @param {Object} params.gameDef - 遊戲定義
  * @param {String} params.subModeId - 子模式
  * @param {String} [params.strategy='default'] - 策略名稱
+ * @param {Set} [params.excludeNumbers] - [新增] 要排除的號碼集合
  */
-export function algoPattern({ data, gameDef, subModeId, strategy = 'default' }) {
+export function algoPattern({ data, gameDef, subModeId, strategy = 'default', excludeNumbers = new Set() }) {
     log(`[Pattern V4.2] 啟動 | 玩法: ${gameDef.type} | 策略: ${strategy}`);
     
     // 1. 資料驗證與正規化 (含淺拷貝)
@@ -96,10 +93,10 @@ export function algoPattern({ data, gameDef, subModeId, strategy = 'default' }) 
     }
     const { data: validData, warning } = validation;
 
-    // 2. 分流處理
+    // 2. 分流處理 (將 excludeNumbers 傳入)
     let result;
     if (gameDef.type === 'lotto' || gameDef.type === 'power') {
-        result = handleComboPatternV4(validData, gameDef);
+        result = handleComboPatternV4(validData, gameDef, excludeNumbers);
     } else if (gameDef.type === 'digit') {
         result = handleDigitPatternV4(validData, gameDef, strategy);
     } else {
@@ -572,3 +569,4 @@ function getWeightedHotNumbers(data, range, needed, excludeSet) {
         .filter(n => !excludeSet.has(n))
         .slice(0, needed);
 }
+
