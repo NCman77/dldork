@@ -830,65 +830,80 @@ const App = {
         let data       = this.state.rawData[gameName] || [];
         if (!gameDef) return;
 
-        const countVal  = document.querySelector('input[name="count"]:checked').value;
+        // [修改] 讀取模式 (strict, random, pack)
+        const modeInput = document.querySelector('input[name="count"]:checked');
+        const mode = modeInput ? modeInput.value : 'strict';
+
         const container = document.getElementById('prediction-output');
         container.innerHTML = '';
         document.getElementById('result-area').classList.remove('hidden');
 
-        if (countVal === 'pack') {
-            this.algoSmartWheel(data, gameDef);
-            return;
-        }
-
-        const count  = parseInt(countVal, 10);
-        const school = this.state.currentSchool;
+        // 設定參數：包牌模式需先跑 3 輪湊滿 10-15 個號碼，一般模式固定 5 注
+        const isRandom = (mode === 'random');
+        const isPack   = (mode === 'pack');
+        const count    = isPack ? 3 : 5; 
+        const school   = this.state.currentSchool;
         
-        // [修改] 建立全域排除集合，用於分層排除
+        // 全域排除集合 & 包牌專用暫存池
         const excludeSet = new Set();
+        const packPool = [];
 
         for (let i = 0; i < count; i++) {
-            // [修改] 將 excludeNumbers 傳入 params
-            const params = { data, gameDef, subModeId: this.state.currentSubMode, excludeNumbers: excludeSet };
+            // [修改] 傳入 excludeNumbers 與 random 參數
+            const params = { 
+                data, 
+                gameDef, 
+                subModeId: this.state.currentSubMode, 
+                excludeNumbers: excludeSet,
+                random: isRandom 
+            };
+            
             let result = null;
 
             switch (school) {
-                case 'balance':
-                    result = algoBalance(params);
-                    break;
-                case 'stat':
-                    result = algoStat(params);
-                    break;
-                case 'pattern':
-                    result = algoPattern(params);
-                    break;
-                case 'ai':
-                    result = algoAI(params);
-                    break;
-                case 'wuxing':
-                    result = this.algoWuxing(params);
-                    break;
+                case 'balance': result = algoBalance(params); break;
+                case 'stat':    result = algoStat(params); break;
+                case 'pattern': result = algoPattern(params); break;
+                case 'ai':      result = algoAI(params); break;
+                case 'wuxing':  result = this.algoWuxing(params); break;
             }
 
             if (result) {
-                // 如果你暫時不想要 fallback，可以直接刪掉這段 monteCarlo 判斷
-                if (!monteCarloSim(result.numbers, gameDef)) {
-                    // result = algoStat(params);
+                // MonteCarlo 檢查 (保留原本邏輯)
+                if (!monteCarloSim(result.numbers, gameDef)) { /* fallback */ }
+
+                // 更新排除名單 (防止重複)
+                result.numbers.forEach(n => {
+                    excludeSet.add(n.val);
+                    if (isPack) packPool.push(n.val); // 收集包牌候選
+                });
+
+                // 如果不是包牌模式，直接渲染結果
+                if (!isPack) {
+                    let rankLabel = `SET ${i + 1}`;
+                    if (isRandom) {
+                        // 隨機模式的標籤
+                        rankLabel = `<span class="text-amber-600">🎲 隨機推薦 ${i+1}</span>`;
+                    } else {
+                        // 嚴選模式的標籤 (分層結構排除法)
+                        if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
+                        else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
+                        else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
+                        else rankLabel = `<span class="text-stone-400">🛡️ 補位組合</span>`;
+                    }
+                    this.renderRow(result, i + 1, rankLabel);
                 }
-
-                // [修改] 將本輪選出的號碼加入排除名單 (防止下一注重複)
-                result.numbers.forEach(n => excludeSet.add(n.val));
-
-                // [修改] 定義標籤名稱
-                let rankLabel = `SET ${i + 1}`;
-                if (count > 1) {
-                    if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
-                    else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
-                    else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
-                    else rankLabel = `<span class="text-stone-400">🛡️ 補位組合</span>`;
-                }
-
-                this.renderRow(result, i + 1, rankLabel);
+                
+                // 包牌模式：若池子夠了就提早結束 (通常需要 10 個)
+                if (isPack && packPool.length >= 12) break;
             }
+        }
+
+        // [新增] 包牌模式的後續處理 (橋接邏輯)
+        if (isPack) {
+            // 取前 10 個不重複號碼作為包牌池
+            const finalPool = [...new Set(packPool)].slice(0, 10).sort((a,b)=>a-b);
+            this.algoSmartWheel(data, gameDef, finalPool);
         }
     },
 
@@ -1039,6 +1054,7 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
