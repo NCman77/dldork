@@ -263,29 +263,37 @@
 
                 <div class="relative z-10 flex flex-col items-center gap-6 border-t border-stone-100 pt-6">
                     <div class="flex items-center bg-stone-50 p-1.5 rounded-xl border border-stone-100">
-                        <span class="text-xs font-bold text-stone-400 px-3">模式</span>
+<span class="text-xs font-bold text-stone-400 px-3">模式</span>
                         <div class="flex gap-1">
-                            <!-- 嚴選模式 (Strict) -->
+                            <!-- 1. 嚴選模式 (Strict) -->
                             <label class="cursor-pointer">
                                 <input type="radio" name="count" value="strict" class="peer hidden" checked>
-                                <span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">
+                                <span class="block px-3 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-stone-800 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-stone-800">
                                     👑 嚴選
                                 </span>
                             </label>
                             
-                            <!-- 隨機模式 (Random) -->
+                            <!-- 2. 隨機模式 (Random) -->
                             <label class="cursor-pointer">
                                 <input type="radio" name="count" value="random" class="peer hidden">
-                                <span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-amber-600 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-amber-600">
+                                <span class="block px-3 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-amber-600 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-amber-600">
                                     🎲 隨機
                                 </span>
                             </label>
 
-                            <!-- 包牌模式 (Smart Wheel) -->
+                            <!-- 3. 包牌按鈕 1 (變動文字：標準/二區/強勢) -->
                             <label class="cursor-pointer">
-                                <input type="radio" name="count" value="pack" class="peer hidden">
-                                <span class="block px-4 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-purple-600 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-purple-600">
-                                    🛍️ 包牌
+                                <input type="radio" name="count" value="pack_1" class="peer hidden">
+                                <span class="block px-3 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-purple-600 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-purple-600">
+                                    <span id="btn-pack-1-text">🔒 標準包牌</span>
+                                </span>
+                            </label>
+
+                            <!-- 4. 包牌按鈕 2 (變動文字：彈性，可隱藏) -->
+                            <label class="cursor-pointer hidden" id="btn-pack-2-container">
+                                <input type="radio" name="count" value="pack_2" class="peer hidden">
+                                <span class="block px-3 py-1.5 rounded-lg bg-white text-stone-400 peer-checked:bg-pink-600 peer-checked:text-white text-xs font-bold transition shadow-sm border border-transparent peer-checked:border-pink-600">
+                                    <span id="btn-pack-2-text">🌀 彈性包牌</span>
                                 </span>
                             </label>
                         </div>
@@ -339,4 +347,5 @@
     <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
