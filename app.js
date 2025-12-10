@@ -923,13 +923,59 @@ const App = {
         }
 
         // 包牌模式的後續處理
-        if (isPack) {
-            // 取前 12 個不重複號碼作為包牌池 (大樂透/威力彩需要較多)
-            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
-            // [修改] 將 mode (pack_1/pack_2) 傳遞給包牌模組
-            this.algoSmartWheel(data, gameDef, finalPool, mode);
+if (isPack) {
+    let finalPool;
+    
+    // [Phase 6] 數字型遊戲使用位數獨立的 Pool
+    if (gameDef.type === 'digit') {
+        finalPool = [];
+        
+        // 嘗試從第一輪結果提取完整排名
+        let foundMetadata = false;
+        for (let i = 0; i < count; i++) {
+            const params = { 
+                data, 
+                gameDef, 
+                subModeId: this.state.currentSubMode, 
+                excludeNumbers: new Set(),
+                random: isRandom,
+                setIndex: i 
+            };
+            
+            let result = null;
+            switch (school) {
+                case 'balance': result = algoBalance(params); break;
+                case 'stat':    result = algoStat(params); break;
+                case 'pattern': result = algoPattern(params); break;
+                case 'ai':      result = algoAI(params); break;
+                case 'wuxing':  result = this.algoWuxing(params); break;
+            }
+            
+            // 檢查是否有位數排名資料
+            if (result && result.metadata && result.metadata.rankedDigits) {
+                // 提取每個位數的前 5 名（共 15 或 20 個號碼）
+                result.metadata.rankedDigits.forEach(posRanked => {
+                    finalPool.push(...posRanked.slice(0, 5));
+                });
+                foundMetadata = true;
+                break; // 只需要一次就夠了
+            }
         }
-    },
+        
+        // 如果沒有 metadata（其他學派），回退到舊邏輯
+        if (!foundMetadata) {
+            console.warn(`⚠️ ${school} 學派未提供位數排名，使用混合 Pool`);
+            finalPool = [...new Set(packPool)];
+        }
+    } 
+    // 樂透型/威力彩：使用原邏輯
+    else {
+        finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
+    }
+    
+    this.algoSmartWheel(data, gameDef, finalPool, mode);
+}
+
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1122,6 +1168,7 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
