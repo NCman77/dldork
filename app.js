@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V27.0：全面支援 algo_pattern V4.2 (Metadata & Strategy)
+ * V26.0：學派分流完成（平衡 / 統計 / 關聯 / AI / 五行），不做 fallback
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -41,7 +41,6 @@ const App = {
         rawData: {}, rawJackpots: {},
         currentGame: "", currentSubMode: null,
         currentSchool: "balance",
-        currentPatternStrategy: "default", // V4.2 新增：關聯學派策略
         filterPeriod: "", filterYear: "", filterMonth: "",
         profiles: [], user: null, db: null, apiKey: "",
         drawOrder: 'size' // 預設用大小順序顯示
@@ -322,7 +321,7 @@ const App = {
             const d = await res.json();
             p.fortune2025 = JSON.parse(
                 d.candidates[0].content.parts[0].text
-                    .replace(/```/g, '')
+                    .replace(/``````/g, '')
                     .trim()
             );
             this.saveProfiles();
@@ -732,16 +731,9 @@ const App = {
         `).join('');
     },
 
-    // V4.2 新增：設定關聯學派策略
-    setPatternStrategy(val) {
-        this.state.currentPatternStrategy = val;
-    },
-
     selectSchool(school) {
         this.state.currentSchool = school;
         const info = GAME_CONFIG.SCHOOLS[school];
-        
-        // 切換卡片樣式
         document.querySelectorAll('.school-card').forEach(el => {
             el.classList.remove('active');
             Object.values(GAME_CONFIG.SCHOOLS).forEach(s => {
@@ -753,21 +745,13 @@ const App = {
             activeCard.classList.add('active');
             activeCard.classList.add(info.color);
         }
-
-        // 更新說明
         const container = document.getElementById('school-description');
         container.className =
             `text-sm leading-relaxed text-stone-600 bg-stone-50 p-5 rounded-xl border-l-4 ${info.color}`;
         container.innerHTML =
             `<h4 class="base font-bold mb-3 text-stone-800">${info.title}</h4>${info.desc}`;
-        
-        // 顯示/隱藏各學派的特殊選項區塊
         document.getElementById('wuxing-options')
             .classList.toggle('hidden', school !== 'wuxing');
-        
-        // V4.2 新增：顯示關聯學派的策略選擇器
-        document.getElementById('pattern-options')
-            .classList.toggle('hidden', school !== 'pattern');
     },
 
     // ================= 學派入口：runPrediction =================
@@ -779,11 +763,7 @@ const App = {
 
         const countVal  = document.querySelector('input[name="count"]:checked').value;
         const container = document.getElementById('prediction-output');
-        const metaContainer = document.getElementById('metadata-display'); // V4.2 新增
-        
         container.innerHTML = '';
-        metaContainer.innerHTML = '';
-        metaContainer.classList.add('hidden');
         document.getElementById('result-area').classList.remove('hidden');
 
         if (countVal === 'pack') {
@@ -793,16 +773,7 @@ const App = {
 
         const count  = parseInt(countVal, 10);
         const school = this.state.currentSchool;
-        
-        // V4.2：將 strategy 參數納入 params
-        const params = { 
-            data, 
-            gameDef, 
-            subModeId: this.state.currentSubMode,
-            strategy: this.state.currentPatternStrategy // 傳入策略
-        };
-
-        let firstMetadata = null; // 用於儲存第一筆結果的 Metadata
+        const params = { data, gameDef, subModeId: this.state.currentSubMode };
 
         for (let i = 0; i < count; i++) {
             let result = null;
@@ -826,46 +797,14 @@ const App = {
             }
 
             if (result) {
+                // 如果你暫時不想要 fallback，可以直接刪掉這段 monteCarlo 判斷
                 if (!monteCarloSim(result.numbers, gameDef)) {
-                   // Fallback logic here if needed
+                    // 例如這裡原本會 fallback 到統計：
+                    // result = algoStat(params);
                 }
-                
-                // V4.2：捕捉 Metadata (只取第一筆)
-                if (result.metadata && !firstMetadata) {
-                    firstMetadata = result.metadata;
-                }
-
                 this.renderRow(result, i + 1);
             }
         }
-
-        // V4.2：渲染 Metadata 儀表板
-        if (firstMetadata) {
-            this.renderMetadata(firstMetadata);
-        }
-    },
-
-    // V4.2 新增：渲染 Metadata 函數
-    renderMetadata(meta) {
-        const container = document.getElementById('metadata-display');
-        container.classList.remove('hidden');
-        
-        let html = `<div class="meta-panel animate-[fadeIn_0.5s]">
-            <div class="meta-item"><span class="meta-label">核心版本</span><span class="meta-val">V${meta.version || '4.0'}</span></div>
-            <div class="meta-item"><span class="meta-label">樣本數據</span><span class="meta-val">${meta.dataSize || 0} 期</span></div>`;
-
-        if (meta.allocation) {
-            html += `<div class="meta-item"><span class="meta-label">策略配額</span><span class="meta-val">拖${meta.allocation.drag}/鄰${meta.allocation.neighbor}/尾${meta.allocation.tail}</span></div>`;
-        }
-        if (meta.strategy) {
-            html += `<div class="meta-item"><span class="meta-label">當前戰術</span><span class="meta-val uppercase">${meta.strategy}</span></div>`;
-        }
-        if (meta.picks) {
-             html += `<div class="meta-item"><span class="meta-label">選位排名</span><span class="meta-val">[${meta.picks.join(', ')}]</span></div>`;
-        }
-        
-        html += `</div>`;
-        container.innerHTML = html;
     },
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
