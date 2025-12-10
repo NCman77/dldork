@@ -944,20 +944,7 @@ const App = {
         };
     },
 
-    algoSmartWheel(data, gameDef) {
-        const results = algoSmartWheel(data, gameDef);
-        results.forEach((res, idx) =>
-            this.renderRow(
-                {
-                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                    groupReason: res.groupReason
-                },
-                idx + 1
-            )
-        );
-    },
-
-    renderRow(resultObj, index) {
+    renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
         const colors = {
             stat: 'bg-stone-200 text-stone-700',
@@ -967,11 +954,14 @@ const App = {
             wuxing: 'bg-pink-100 text-pink-800'
         };
         const colorClass = colors[this.state.currentSchool] || 'bg-stone-200';
+        
+        // [修改] 如果有傳入 label 就使用 label，否則預設 SET {index}
+        const displayLabel = label ? label : `SET ${index}`;
 
         let html = `
           <div class="flex flex-col gap-2 p-4 bg-white rounded-xl border border-stone-200 shadow-sm animate-fade-in hover:shadow-md transition">
             <div class="flex items-center gap-3">
-              <span class="text-[10px] font-black text-stone-300 tracking-widest">SET ${index}</span>
+              <span class="text-[10px] font-black text-stone-300 tracking-widest uppercase">${displayLabel}</span>
               <div class="flex flex-wrap gap-2">
         `;
         resultObj.numbers.forEach(item => {
@@ -1049,5 +1039,6 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
