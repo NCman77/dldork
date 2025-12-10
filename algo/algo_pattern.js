@@ -212,7 +212,7 @@ function generateWeightedDragMapCached(data, periods) {
 // 2. 組合型核心邏輯
 // ============================================
 
-function handleComboPatternV4(data, gameDef) {
+function handleComboPatternV4(data, gameDef, excludeNumbers) {
     const { range, count, zone2 } = gameDef;
     const lastDraw = data[0].numbers.slice(0, 6); 
     
@@ -228,12 +228,18 @@ function handleComboPatternV4(data, gameDef) {
     const selected = new Set();
     const result = [];
 
+    // [修改] 建立一個「檢查用」的集合，包含「本輪已選」和「全域已排除」的號碼
+    // 這樣候選生成函式就會自動跳過上一注已經出現過的號碼
+    const checkSet = new Set([...selected, ...excludeNumbers]);
+
     // Phase A: 加權拖牌
-    const dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range);
+    // [修改] 傳入 checkSet 進行過濾
+    const dragCandidates = getDragCandidatesStrict(lastDraw, dragMap, range, checkSet);
     for (const cand of dragCandidates) {
         if (result.length >= allocation.drag) break;
-        if (!selected.has(cand.num)) {
+        if (!selected.has(cand.num) && !excludeNumbers.has(cand.num)) {
             selected.add(cand.num);
+            checkSet.add(cand.num); // 同步更新檢查集
             result.push({ 
                 val: cand.num, 
                 tag: `${cand.from}→${cand.num}(${cand.prob}%)` 
@@ -242,21 +248,25 @@ function handleComboPatternV4(data, gameDef) {
     }
 
     // Phase B: 鄰號
-    const neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, selected);
+    // [修改] 傳入 checkSet
+    const neighborCandidates = getNeighborCandidatesStrict(lastDraw, range, checkSet);
     for (const n of neighborCandidates) {
         if (result.length >= allocation.drag + allocation.neighbor) break;
-        if (!selected.has(n.num)) {
+        if (!selected.has(n.num) && !excludeNumbers.has(n.num)) {
             selected.add(n.num);
+            checkSet.add(n.num);
             result.push({ val: n.num, tag: `${n.from}鄰號` });
         }
     }
 
     // Phase C: 統計尾數
-    const tailCandidates = getTailCandidatesStrict(tailClusters, tailAnalysis, range, selected);
+    // [修改] 傳入 checkSet
+    const tailCandidates = getTailCandidatesStrict(tailClusters, tailAnalysis, range, checkSet);
     for (const t of tailCandidates) {
         if (result.length >= count) break;
-        if (!selected.has(t.num)) {
+        if (!selected.has(t.num) && !excludeNumbers.has(t.num)) {
             selected.add(t.num);
+            checkSet.add(t.num);
             result.push({ val: t.num, tag: `${t.tail}尾(${t.source})` });
         }
     }
@@ -264,27 +274,28 @@ function handleComboPatternV4(data, gameDef) {
     // Phase D: 熱號回補
     if (result.length < count) {
         const needed = count - result.length;
-        const hotNumbers = getWeightedHotNumbers(data, range, needed, selected);
+        // [修改] 傳入 checkSet
+        const hotNumbers = getWeightedHotNumbers(data, range, needed, checkSet);
         hotNumbers.forEach(n => {
             selected.add(n);
             result.push({ val: n, tag: '加權熱號' });
         });
     }
 
-    // 4. 第二區
+    // 4. 第二區 (威力彩) - [注意] 第二區通常不參與排除，因為號碼池獨立且小
     if (zone2) {
         const zone2Num = selectZone2Strict(data, zone2);
         return { 
             numbers: [...result.sort((a,b) => a.val - b.val), ...zone2Num], 
             groupReason: "🔗 加權拖牌+ZScore尾數",
-            metadata: { allocation } // ✨ V4.2 新增 Metadata
+            metadata: { allocation }
         };
     }
     
     return { 
         numbers: result.sort((a, b) => a.val - b.val), 
         groupReason: "🔗 V4.2 專業級關聯分析",
-        metadata: { allocation } // ✨ V4.2 新增 Metadata
+        metadata: { allocation } 
     };
 }
 
@@ -396,13 +407,16 @@ function findTailClusters(lastDraw) {
         .sort((a, b) => b.count - a.count);
 }
 
-// 候選生成函數 (保持不變)
-function getDragCandidatesStrict(lastDraw, dragMap, range) {
+// 候選生成函數 (加入 excludeSet 支援)
+function getDragCandidatesStrict(lastDraw, dragMap, range, excludeSet) {
     const candidates = [];
     lastDraw.forEach(seedNum => {
         const drags = dragMap[seedNum] || [];
         drags.forEach(d => {
-            if (d.num >= 1 && d.num <= range) candidates.push({ num: d.num, from: seedNum, prob: d.prob });
+            // [修改] 增加 excludeSet.has(d.num) 檢查
+            if (d.num >= 1 && d.num <= range && !excludeSet.has(d.num)) {
+                candidates.push({ num: d.num, from: seedNum, prob: d.prob });
+            }
         });
     });
     const unique = new Map();
@@ -420,7 +434,10 @@ function getNeighborCandidatesStrict(lastDraw, range, excludeSet) {
     lastDraw.forEach(seedNum => {
         [-1, +1].forEach(offset => {
             const n = seedNum + offset;
-            if (n >= 1 && n <= range && !excludeSet.has(n)) candidates.push({ num: n, from: seedNum });
+            // [修改] 使用 excludeSet 檢查
+            if (n >= 1 && n <= range && !excludeSet.has(n)) {
+                candidates.push({ num: n, from: seedNum });
+            }
         });
     });
     return candidates.sort((a, b) => a.num - b.num);
@@ -530,29 +547,6 @@ function execute3StarStrategy(data, strategyName) {
     };
 }
 
-function executePositionalStrategy(data, count, strategy) {
-    const result = [];
-    const pickIndex = strategy === 'conservative' ? 1 : 0; 
-
-    for(let i=0; i<count; i++) {
-        const stats = new Array(10).fill(0);
-        data.slice(0, 50).forEach(d => {
-            if (d.numbers.length > i) {
-                const n = d.numbers[i];
-                if (n >= 0 && n <= 9) stats[n]++;
-            }
-        });
-        const sorted = stats.map((c, n) => ({n, c})).sort((a,b) => b.c - a.c);
-        const pick = sorted[pickIndex] || sorted[0];
-        result.push({ val: pick.n, tag: `Pos${i+1}` });
-    }
-    return { 
-        numbers: result, 
-        groupReason: strategy === 'conservative' ? "🔗 次熱位置" : "🔗 熱門位置",
-        metadata: { pickIndex }
-    };
-}
-
 function getWeightedHotNumbers(data, range, needed, excludeSet) {
     const weightedFreq = {};
     const lookback = Math.min(PATTERN_CONFIG.FALLBACK_PERIOD, data.length);
@@ -566,7 +560,6 @@ function getWeightedHotNumbers(data, range, needed, excludeSet) {
         .map(([n, w]) => ({ n: parseInt(n), w }))
         .sort((a, b) => b.w - a.w)
         .map(obj => obj.n)
-        .filter(n => !excludeSet.has(n))
+        .filter(n => !excludeSet.has(n)) // [修改] 這裡原本是 excludeSet，現在邏輯一致了
         .slice(0, needed);
 }
-
