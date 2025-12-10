@@ -1,75 +1,27 @@
 /**
  * utils.js
- * 全功能工具箱：包含數學運算、統計邏輯、命理轉換，以及資料讀取與 API 連線 (Scheme C - Circuit Breaker V3)
- * * V3 修正重點：
- * 1. 🔥 Firestore 熔斷機制：一旦偵測到環境限制 (Storage/Network Error)，自動永久停用 Firestore，防止 400 錯誤連發。
- * 2. 🛡️ 深度錯誤攔截：針對 'Access to storage is not allowed' 進行全域防護。
- * 3. 💾 強制記憶體模式：在無痕或沙盒環境下，完全依靠記憶體變數運作。
+ * 全功能工具箱：包含數學運算、統計邏輯、命理轉換，以及資料讀取與 API 連線 (Scheme B)
  */
-
-// ==========================================
-// 0. 基礎建設 (Infrastructure)
-// ==========================================
-
-// 記憶體快取備援
-const _memoryCache = {
-    data: null,
-    timestamp: 0
-};
-
-// Firestore 熔斷開關：一旦發生致命錯誤，將設為 true，停止所有後續連線
-let _firestoreDisabled = false;
-
-/**
- * 嘗試讀取 LocalStorage，失敗則回傳 null
- */
-function safeGetLocalStorage(key) {
-    try {
-        if (typeof localStorage === 'undefined') return null;
-        return localStorage.getItem(key);
-    } catch (e) {
-        // 靜默失敗，不污染 Console
-        return null;
-    }
-}
-
-/**
- * 嘗試寫入 LocalStorage，失敗則寫入記憶體
- */
-function safeSetLocalStorage(key, value) {
-    try {
-        if (typeof localStorage === 'undefined') throw new Error("No Storage");
-        localStorage.setItem(key, value);
-    } catch (e) {
-        // 如果是指定的快取 key，轉存記憶體
-        if (key === 'lottery_live_cache') {
-            try {
-                const parsed = JSON.parse(value);
-                _memoryCache.data = parsed.data;
-                _memoryCache.timestamp = parsed.timestamp;
-            } catch (err) { /* ignore */ }
-        }
-    }
-}
 
 // ==========================================
 // 1. 資料處理與 IO 工具 (Data & IO Tools)
 // ==========================================
 
-// 解析 CSV 字串為物件
+// 解析 CSV 字串為物件 (支援大小順序與開出順序)
 function parseCSVLine(line) {
-    if (!line) return null;
-    const cleanLine = line.replace(/^\uFEFF/, '').trim();
+    const cleanLine = line.replace(/^\uFEFF/, '').trim(); // 去除 BOM
     if (!cleanLine) return null;
     
+    // 處理 CSV 欄位 (去除引號)
     const cols = cleanLine.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
     if (cols.length < 5) return null;
 
-    const gameNameMap = {
-        '大樂透': '大樂透', '威力彩': '威力彩', '今彩539': '今彩539',
-        '雙贏彩': '雙贏彩', '3星彩': '3星彩', '4星彩': '4星彩',
-        '三星彩': '3星彩', '四星彩': '4星彩', '38樂合彩': '威力彩'
-    };
+    // 判斷遊戲類型
+const gameNameMap = {
+    '大樂透': '大樂透', '威力彩': '威力彩', '今彩539': '今彩539',
+    '雙贏彩': '雙贏彩', '3星彩': '3星彩', '4星彩': '4星彩',
+    '三星彩': '3星彩', '四星彩': '4星彩'
+};
 
     let matchedGame = null;
     for (const [ch, en] of Object.entries(gameNameMap)) {
@@ -77,31 +29,33 @@ function parseCSVLine(line) {
     }
     if (!matchedGame) return null;
 
+    // 解析日期 (民國轉西元)
     const dateMatch = cols[2].match(/(\d{3,4})\/(\d{1,2})\/(\d{1,2})/);
     if (!dateMatch) return null;
     let year = parseInt(dateMatch[1]);
     if (year < 1911) year += 1911;
     const dateStr = `${year}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
 
-    const numbers = [];
-    for (let i = 5; i < cols.length; i++) { 
-        if (/^\d+$/.test(cols[i])) {
-            numbers.push(parseInt(cols[i]));
-        }
-    }
+// 解析號碼 (從第 6 欄開始，跳過銷售金額)
+const numbers = [];
+for (let i = 6; i < cols.length; i++) {  // ← 改成 6
+    if (/^\d+$/.test(cols[i])) numbers.push(parseInt(cols[i]));
+}
 
     if (numbers.length < 2) return null;
 
+    // 因為歷史 CSV 通常只提供一組號碼，我們暫時將其視為 "開出順序" (appear)
+    // 並自動排序產生 "大小順序" (size)
     const numsAppear = [...numbers];
     const numsSize = [...numbers].sort((a, b) => a - b);
 
     return {
         game: matchedGame,
         data: {
-            date: dateStr,
+            date: dateStr, // 保持字串，合併後轉 Date
             period: cols[1],
-            numbers: numsAppear,
-            numbers_size: numsSize,
+            numbers: numsAppear,       // 預設為開出順序
+            numbers_size: numsSize,    // 大小順序
             source: 'history_zip'
         }
     };
@@ -119,8 +73,7 @@ export async function fetchAndParseZip(url) {
     try {
         const res = await fetch(url);
         if (!res.ok) {
-            // 這是預期中的錯誤 (404)，使用 warn 而非 error，並不回傳資料
-            console.warn(`⚠️ [ZIP] 跳過無效連結: ${url} (Status ${res.status})`);
+            console.error(`❌ [ZIP] HTTP 錯誤: ${url} - Status ${res.status}`);
             return {};
         }
         
@@ -129,17 +82,25 @@ export async function fetchAndParseZip(url) {
         const blob = await res.blob();
         const zip = await window.JSZip.loadAsync(blob);
         
+        console.log(`📂 [ZIP] 解壓縮完成: ${url}，檔案數量: ${Object.keys(zip.files).length}`);
+        
         const zipData = {};
         let processedFiles = 0;
         let totalLines = 0;
         
         for (const filename of Object.keys(zip.files)) {
-            if (filename.toLowerCase().endsWith('.csv') && !filename.startsWith('__') && !filename.includes('__MACOSX')) {
+            if (filename.toLowerCase().endsWith('.csv') && !filename.startsWith('__')) {
+                console.log(`📄 [ZIP] 處理 CSV: ${filename}`);
+                
                 const text = await zip.files[filename].async("string");
-                const lines = text.split(/\r\n|\n/);
+const lines = text.split(/\r\n|\n/);
 
-                let validLines = 0;
-                lines.forEach(line => {
+// 🔍 显示前 3 行内容（用于 Debug）
+console.log(`📝 [CSV内容] ${filename} 前 3 行:`, lines.slice(0, 3));
+
+let validLines = 0;
+lines.forEach(line => {
+
                     const parsed = parseCSVLine(line);
                     if (parsed) {
                         if (!zipData[parsed.game]) zipData[parsed.game] = [];
@@ -148,6 +109,7 @@ export async function fetchAndParseZip(url) {
                     }
                 });
                 
+                console.log(`   ✓ ${filename}: ${validLines} 筆有效資料`);
                 processedFiles++;
                 totalLines += validLines;
             }
@@ -156,15 +118,39 @@ export async function fetchAndParseZip(url) {
         console.log(`📊 [ZIP] 解析完成: ${url}`, {
             處理檔案數: processedFiles,
             遊戲種類: Object.keys(zipData).length,
-            總筆數: totalLines
+            總筆數: totalLines,
+            遊戲列表: Object.keys(zipData)
         });
         
         return zipData;
         
     } catch (e) {
-        console.error(`❌ [ZIP] 處理異常: ${url}`, e);
+        console.error(`❌ [ZIP] 處理失敗: ${url}`, e);
         return {};
     }
+}
+
+
+// 取得前端 API 需要的日期區間 (近3個月)
+function getApiDateRange() {
+    const today = new Date();
+    const endY = today.getFullYear();
+    const endM = today.getMonth() + 1;
+    
+    // 回推3個月 (包含本月) -> 減5
+    let startY = endY;
+    let startM = endM - 5;
+    
+    if (startM <= 0) {
+        startM += 12;
+        startY -= 1;
+    }
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    return {
+        startMonth: `${startY}-${pad(startM)}`,
+        endMonth: `${endY}-${pad(endM)}`
+    };
 }
 
 // 前端即時抓取 Live Data
@@ -177,12 +163,14 @@ export async function fetchLiveLotteryData() {
     const API_BASE = 'https://api.taiwanlottery.com/TLCAPIWeB/Lottery';
     const liveData = {};
 
+    // 代碼轉換
     const codeMap = {
         'Lotto649': '大樂透', 'SuperLotto638': '威力彩',
         'Daily539': '今彩539', 'Lotto1224': '雙贏彩',
         '3D': '3星彩', '4D': '4星彩'
     };
 
+    // 產生月份清單（往前推 2 個月，加速）
     const today = new Date();
     const monthsToFetch = [];
     for (let i = 0; i < 2; i++) {
@@ -191,8 +179,9 @@ export async function fetchLiveLotteryData() {
         monthsToFetch.push(yearMonth);
     }
 
-    console.log(`[Utils] 🔄 抓取 Live 資料: ${monthsToFetch.join(', ')}`);
+    console.log(`[Utils] 🔄 抓取資料: ${monthsToFetch.join(', ')}`);
 
+    // 修正 contentKey 函數
     const getContentKey = (code) => {
         if (code === '3D') return 'lotto3DRes';
         if (code === '4D') return 'lotto4DRes';
@@ -203,6 +192,7 @@ export async function fetchLiveLotteryData() {
         const gameName = codeMap[code] || code;
         if (!liveData[gameName]) liveData[gameName] = [];
 
+        // 平行查詢所有月份（加速）
         const monthPromises = monthsToFetch.map(async (month) => {
             try {
                 const url = `${API_BASE}/${code}Result?month=${month}&pageNum=1&pageSize=100`;
@@ -212,57 +202,98 @@ export async function fetchLiveLotteryData() {
                 const json = await res.json();
                 const contentKey = getContentKey(code);
                 const records = json.content[contentKey] || [];
+                
+                if (records.length > 0) {
+                    console.log(`✅ [${gameName}] ${month}: ${records.length} 筆`);
+                }
+                
                 return records;
             } catch (e) {
+                console.warn(`⚠️ [${gameName}] ${month} 失敗`);
                 return [];
             }
         });
 
-        try {
-            const allMonthRecords = await Promise.all(monthPromises);
-            const allRecords = allMonthRecords.flat();
+        const allMonthRecords = await Promise.all(monthPromises);
+        const allRecords = allMonthRecords.flat();
 
-            allRecords.forEach(item => {
-                const dateStr = item.lotteryDate.split('T')[0];
-                const numsSize = item.drawNumberSize || [];
-                const numsAppear = item.drawNumberAppear || [];
-                
-                if (numsSize.length > 0 || numsAppear.length > 0) {
-                    liveData[gameName].push({
-                        date: dateStr,
-                        period: String(item.period),
-                        numbers: numsAppear.length > 0 ? numsAppear : numsSize,
-                        numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-                        source: 'live_api'
-                    });
-                }
-            });
+        // 處理所有記錄
+        allRecords.forEach(item => {
+            const dateStr = item.lotteryDate.split('T')[0];
+            const numsSize = item.drawNumberSize || [];
+            const numsAppear = item.drawNumberAppear || [];
             
-            if (liveData[gameName].length > 0) {
-                 console.log(`✅ [Live] ${gameName}: 取得 ${liveData[gameName].length} 筆`);
+            if (numsSize.length > 0 || numsAppear.length > 0) {
+                liveData[gameName].push({
+                    date: dateStr,
+                    period: String(item.period),
+                    // 核心修改：確保 numbers 預設為 drawNumberAppear (開出順序)
+                    // 如果沒有开出顺序，才用大小顺序
+                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                    source: 'live_api'
+                });
             }
+        });
 
-        } catch (err) {
-            console.error(`❌ [Live] ${gameName} 處理錯誤`, err);
+        // 備援：如果逐月查詢失敗，嘗試區間查詢
+        if (allRecords.length === 0) {
+            console.log(`🔄 [${gameName}] 逐月無資料，嘗試區間查詢...`);
+            try {
+                const startMonth = monthsToFetch[monthsToFetch.length - 1];
+                const endMonth = monthsToFetch[0];
+                const url = `${API_BASE}/${code}Result?startMonth=${startMonth}&endMonth=${endMonth}&pageNum=1&pageSize=100`;
+                const res = await fetch(url);
+                
+                if (res.ok) {
+                    const json = await res.json();
+                    const contentKey = getContentKey(code);
+                    const records = json.content[contentKey] || [];
+
+                    if (records.length > 0) {
+                        console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆`);
+                        
+                        records.forEach(item => {
+                            const dateStr = item.lotteryDate.split('T')[0];
+                            const numsSize = item.drawNumberSize || [];
+                            const numsAppear = item.drawNumberAppear || [];
+                            
+                            if (numsSize.length > 0 || numsAppear.length > 0) {
+                                liveData[gameName].push({
+                                    date: dateStr,
+                                    period: String(item.period),
+                                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                    source: 'live_api'
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn(`⚠️ [${gameName}] 區間查詢失敗`);
+            }
         }
     }
     
     return liveData;
 }
 
-// 合併多重來源資料
+
+
+// 合併多重來源資料 (Base + ZIPs + Live + Firestore)
 export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) {
-    const merged = { ...baseData.games };
+    const merged = { ...baseData.games }; // 淺拷貝
 
-    if (Array.isArray(zipResults)) {
-        zipResults.forEach(zipGameData => {
-            for (const [game, rows] of Object.entries(zipGameData)) {
-                if (!merged[game]) merged[game] = [];
-                merged[game] = [...merged[game], ...rows];
-            }
-        });
-    }
+    // 1. 合併 ZIP 資料
+    zipResults.forEach(zipGameData => {
+        for (const [game, rows] of Object.entries(zipGameData)) {
+            if (!merged[game]) merged[game] = [];
+            merged[game] = [...merged[game], ...rows];
+        }
+    });
 
+    // 2. 合併 Live Data
     if (liveData) {
         for (const [game, rows] of Object.entries(liveData)) {
             if (!merged[game]) merged[game] = [];
@@ -270,6 +301,7 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
         }
     }
 
+    // 3. 合併 Firestore Data (個人補完或歷史紀錄)
     if (firestoreData) {
          for (const [game, rows] of Object.entries(firestoreData)) {
             if (!merged[game]) merged[game] = [];
@@ -277,18 +309,17 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
         }
     }
 
+    // 4. 去重與排序
     for (const game in merged) {
-        if (!Array.isArray(merged[game])) continue;
-
         const unique = new Map();
         merged[game].forEach(item => {
-            if (!item || !item.date) return;
             const key = `${item.date instanceof Date ? item.date.toISOString().split('T')[0] : item.date}-${item.period}`;
-            
+            // Live API > Firestore > ZIP > Base (後蓋前)
             if (!unique.has(key) || item.source === 'live_api') {
                 unique.set(key, item);
             }
         });
+        // 轉回陣列並排序 (由新到舊)
         merged[game] = Array.from(unique.values()).sort((a, b) => {
             const da = new Date(a.date);
             const db = new Date(b.date);
@@ -301,61 +332,47 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
 
 // LocalStorage 快取
 export function saveToCache(data) {
-    const payload = JSON.stringify({
-        timestamp: Date.now(),
-        data: data
-    });
-    safeSetLocalStorage('lottery_live_cache', payload);
+    try {
+        localStorage.setItem('lottery_live_cache', JSON.stringify({
+            timestamp: Date.now(),
+            data: data
+        }));
+    } catch (e) {}
 }
 
 export function loadFromCache() {
-    const raw = safeGetLocalStorage('lottery_live_cache');
-    if (raw) {
-        try {
-            return JSON.parse(raw);
-        } catch (e) { return null; }
-    }
-
-    if (_memoryCache.data && (Date.now() - _memoryCache.timestamp < 3600000)) {
-        return { data: _memoryCache.data, timestamp: _memoryCache.timestamp };
-    }
-
-    return null;
+    try {
+        const raw = localStorage.getItem('lottery_live_cache');
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) { return null; }
 }
 
-// Firestore 存取 (含熔斷機制)
+// Firestore 存取 (包含重複檢查)
 export async function saveToFirestore(db, newData) {
-    // 1. 檢查模塊與熔斷狀態
-    if (_firestoreDisabled || !db || !window.firebaseModules) return;
-    
+    if (!db || !window.firebaseModules) return;
     const { doc, getDoc, setDoc } = window.firebaseModules;
     
+    // 只寫入 'live_api' 來源的資料
     for (const [game, rows] of Object.entries(newData)) {
         for (const row of rows) {
             if (row.source === 'live_api') {
                 const docId = `${row.date}_${row.period}`;
+                const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', `${game}_${docId}`);
                 
                 try {
-                    const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', `${game}_${docId}`);
-                    
-                    // 2. 嘗試讀取 (這是最容易觸發 Access Denied 的地方)
+                    // [Optimization] 先檢查是否存在，避免重複寫入浪費額度
                     const snap = await getDoc(ref);
-                    
-                    if (!snap.exists()) {
-                        await setDoc(ref, {
-                            ...row,
-                            game: game
-                        });
-                        console.log(`[Firestore] Saved: ${game} ${row.period}`);
-                    }
+if (!snap.exists()) {
+    await setDoc(ref, {
+        ...row,
+        game: game  // 新增遊戲名稱欄位
+    });
+    console.log(`[Firestore] New record saved: ${game} ${row.period}`);
+}
+
                 } catch (e) {
-                    // 3. 捕捉致命錯誤：如果環境禁止存取，立即熔斷
-                    if (e.message && (e.message.includes('storage') || e.code === 'permission-denied' || e.message.includes('WebChannel'))) {
-                        console.warn("🛡️ [Firestore] 環境受限，啟動熔斷機制 (停止後續同步)");
-                        _firestoreDisabled = true; 
-                        return; // 立即退出
-                    }
-                    // 其他錯誤則忽略
+                    console.error("Firestore Save Error:", e);
                 }
             }
         }
@@ -363,32 +380,23 @@ export async function saveToFirestore(db, newData) {
 }
 
 export async function loadFromFirestore(db) {
-    // 1. 檢查熔斷狀態
-    if (_firestoreDisabled) {
-        // console.warn("🛡️ [Firestore] 熔斷中，跳過讀取");
-        return {};
-    }
-
-    if (!db || !window.firebaseModules) {
-        console.warn("⚠️ Firestore 模組未載入");
-        return {};
-    }
+    if (!db || !window.firebaseModules) return {};
     
     const { collection, getDocs, query, where, orderBy, limit } = window.firebaseModules;
     
     try {
+        console.log("🔄 [Firestore] 正在載入快取資料...");
+        
         const twoMonthsAgo = new Date();
         twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
         const dateThreshold = twoMonthsAgo.toISOString().split('T')[0];
         
         const gamesList = ['大樂透', '威力彩', '今彩539', '雙贏彩', '3星彩', '4星彩'];
         
+        // 🚀 並行查詢所有遊戲（不用等待）
         const queryPromises = gamesList.map(async (gameName) => {
-            // 雙重檢查
-            if (_firestoreDisabled) return { game: gameName, data: [] };
-
             try {
-                const colRef = collection(db, 'artifacts', 'lottery-app', 'public_data');
+                const colRef = collection(db, 'artifacts/lottery-app/public_data');
                 const q = query(
                     colRef,
                     where('game', '==', gameName),
@@ -413,27 +421,27 @@ export async function loadFromFirestore(db) {
                         }
                     });
                     
-                    if (gameData.length > 0) {
-                        console.log(`✅ [Firestore] ${gameName}: ${gameData.length} 筆`);
-                    }
+                    console.log(`✅ [Firestore] ${gameName}: ${gameData.length} 筆`);
                     return { game: gameName, data: gameData };
                 }
                 return { game: gameName, data: [] };
-
             } catch (e) {
-                // 捕捉個別錯誤
-                if (e.message && (e.message.includes('storage') || e.message.includes('WebChannel'))) {
-                    _firestoreDisabled = true; // 觸發熔斷
+                if (e.code === 'failed-precondition') {
+                    console.error(`❌ [Firestore] ${gameName} 需要建立索引`);
+                } else {
+                    console.warn(`⚠️ [Firestore] ${gameName} 讀取失敗:`, e.message);
                 }
                 return { game: gameName, data: [] };
             }
         });
         
+        // 等待所有查詢完成
         const results = await Promise.all(queryPromises);
         
+        // 組合結果
         const gamesData = {};
         results.forEach(result => {
-            if (result && result.data && result.data.length > 0) {
+            if (result.data.length > 0) {
                 gamesData[result.game] = result.data;
             }
         });
@@ -441,101 +449,63 @@ export async function loadFromFirestore(db) {
         return gamesData;
         
     } catch (e) {
-        console.warn("⚠️ [Firestore] 環境限制，暫時無法使用雲端同步");
-        _firestoreDisabled = true; // 全域熔斷
+        console.warn("⚠️ [Firestore] 整體讀取失敗:", e);
         return {};
     }
 }
+
 
 // ==========================================
 // 2. 核心選號引擎 (The Core Engine)
 // ==========================================
 export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], customWeights={}, stats={}, wuxingContext={}) {
-    const max = range; 
-    const min = (mode.includes('digit')) ? 0 : 1; 
-    const safeData = Array.isArray(data) ? data : [];
-    
-    const recentDrawsCount = 30;
-    let weights = { ...customWeights };
+    const max = range; const min = (mode.includes('digit')) ? 0 : 1; 
+    const totalDraws = stats ? stats.totalDraws : 0; const recentDrawsCount = 30;
+    let weights = customWeights;
 
     if (Object.keys(weights).length === 0 || mode.includes('random')) {
         for(let i=min; i<=max; i++) weights[i] = 10;
-        
         if (mode === 'stat') {
-            safeData.forEach(d => { 
-                const nums = d.numbers.filter(n => n <= max); 
-                nums.forEach(n => weights[n] = (weights[n]||10) + 10); 
-            });
+            data.forEach(d => { const nums = d.numbers.filter(n => n <= max); nums.forEach(n => weights[n] = (weights[n]||10) + 10); });
         } else if (mode === 'ai_weight') {
-             safeData.slice(0, 10).forEach((d, idx) => { 
-                 const w = 20 - idx; 
-                 d.numbers.forEach(n => { 
-                     if(n<=max) weights[n] = (weights[n]||0) + w; 
-                 }); 
-             });
+             data.slice(0, 10).forEach((d, idx) => { const w = 20 - idx; d.numbers.forEach(n => { if(n<=max) weights[n] += w; }); });
         }
     }
 
-    const selected = []; 
-    const pool = [];
-    for(let i=min; i<=max; i++) { 
-        const w = Math.floor(weights[i] || 1); 
-        for(let k=0; k<w; k++) pool.push(i); 
-    }
-
-    let safeGuard = 0;
-    while(selected.length < count && safeGuard < 1000) {
-        safeGuard++;
+    const selected = []; const pool = [];
+    for(let i=min; i<=max; i++) { const w = Math.floor(weights[i]); for(let k=0; k<w; k++) pool.push(i); }
+    while(selected.length < count) {
         if(pool.length === 0) break;
-        
-        const idx = Math.floor(Math.random() * pool.length); 
-        const val = pool[idx];
+        const idx = Math.floor(Math.random() * pool.length); const val = pool[idx];
         const isDigit = mode.includes('digit');
-        
         if (isDigit || !selected.includes(val)) {
             selected.push(val);
-            if (!isDigit) { 
-                const temp = pool.filter(n => n !== val); 
-                pool.length = 0; 
-                pool.push(...temp); 
-            }
+            if (!isDigit) { const temp = pool.filter(n => n !== val); pool.length = 0; pool.push(...temp); }
         }
     }
-    
     if (!mode.includes('digit') && !isSpecial) selected.sort((a,b)=>a-b);
     
     const resultWithTags = [];
     for (const num of selected) {
         let tag = '選號'; 
-        if (isSpecial) { 
-            tag = '特別號'; 
-        } else if (mode === 'stat' || mode === 'stat_missing') {
-            const freq30 = safeData.slice(0, recentDrawsCount).filter(d => d.numbers.includes(num)).length;
-            const missingCount = (stats && stats.missing) ? stats.missing[num] : 0;
-            
+        if (isSpecial) { tag = '特別號'; } 
+        else if (mode === 'stat' || mode === 'stat_missing') {
+            const freq30 = data.slice(0, recentDrawsCount).filter(d => d.numbers.includes(num)).length;
+            const missingCount = stats.missing ? stats.missing[num] : 0;
             if (mode === 'stat_missing') { tag = '極限回補'; } 
             else if (freq30 > 5) { tag = `近${recentDrawsCount}期${freq30}次`; } 
             else if (missingCount > 15) { tag = `遺漏${missingCount}期`; } 
             else { tag = '常態選號'; }
         } else if (mode === 'pattern') {
-            const numTail = num % 10; 
-            const lastDrawTails = lastDraw.map(n => n % 10);
-            
+            const numTail = num % 10; const lastDrawTails = lastDraw.map(n => n % 10);
             if (lastDraw.includes(num)) { tag = '連莊強勢'; } 
-            else if (lastDraw.includes(num - 1) || lastDraw.includes(num + 1)) { 
-                const neighbor = lastDraw.includes(num-1) ? (num-1) : (num+1); 
-                tag = `${neighbor}鄰號`; 
-            } 
+            else if (lastDraw.includes(num - 1) || lastDraw.includes(num + 1)) { const neighbor = lastDraw.includes(num-1) ? (num-1) : (num+1); tag = `${neighbor}鄰號`; } 
             else if (lastDrawTails.includes(numTail) && numTail !== 0) { tag = `${numTail}尾群聚`; } 
             else { tag = '版路預測'; }
         } else if (mode === 'ai_weight') {
-            const vals = Object.values(weights);
-            const maxWeight = vals.length > 0 ? Math.max(...vals) : 1;
-            const score = Math.round(((weights[num] || 0) / maxWeight) * 100); 
-            tag = `趨勢分${score}`;
+            const maxWeight = Math.max(...Object.values(weights)); const score = Math.round((weights[num] / maxWeight) * 100); tag = `趨勢分${score}`;
         } else if (mode.includes('balance') || mode.includes('random')) {
-            const isOdd = num % 2 !== 0; 
-            const isBig = num > max / 2;
+            const isOdd = num % 2 !== 0; const isBig = num > max / 2;
             tag = (isBig ? "大號" : "小號") + "/" + (isOdd ? "奇數" : "偶數"); 
         } else if (mode === 'wuxing') {
             if (wuxingContext && wuxingContext.tagMap && wuxingContext.tagMap[num]) {
@@ -553,58 +523,18 @@ export function calculateZone(data, range, count, isSpecial, mode, lastDraw=[], 
 // 3. 統計與數學工具 (Math & Stats Tools)
 // ==========================================
 export function getLotteryStats(data, range, count) {
-    const isDigit = range === 9; 
-    const stats = { freq: {}, missing: {}, totalDraws: data.length };
-    const maxNum = isDigit ? 9 : range; 
-    const minNum = isDigit ? 0 : 1;
-    
-    for (let i = minNum; i <= maxNum; i++) { 
-        stats.freq[i] = 0; 
-        stats.missing[i] = data.length; 
-    }
-    
-    data.forEach((d, drawIndex) => { 
-        if (!d.numbers) return;
-        d.numbers.forEach(n => { 
-            if (n >= minNum && n <= maxNum) { 
-                stats.freq[n]++; 
-            } 
-        });
-    });
-    
-    // 重算 Missing (遺漏期數)
-    for (let i = minNum; i <= maxNum; i++) {
-        let missing = 0;
-        for (let j = 0; j < data.length; j++) {
-            if (data[j].numbers.includes(i)) break;
-            missing++;
-        }
-        stats.missing[i] = missing;
-    }
-
+    const isDigit = range === 9; const stats = { freq: {}, missing: {}, totalDraws: data.length };
+    const maxNum = isDigit ? 9 : range; const minNum = isDigit ? 0 : 1;
+    for (let i = minNum; i <= maxNum; i++) { stats.freq[i] = 0; stats.missing[i] = data.length; }
+    data.forEach((d, drawIndex) => { d.numbers.forEach(n => { if (n >= minNum && n <= maxNum) { stats.freq[n]++; if (stats.missing[n] === data.length) { stats.missing[n] = drawIndex; } } }); });
     return stats;
 }
 
-export function calcAC(numbers) { 
-    if (!numbers || numbers.length < 2) return 0;
-    let diffs = new Set(); 
-    for(let i=0; i<numbers.length; i++) {
-        for(let j=i+1; j<numbers.length; j++) {
-            diffs.add(Math.abs(numbers[i] - numbers[j]));
-        }
-    }
-    return diffs.size - (numbers.length - 1); 
-}
+export function calcAC(numbers) { let diffs = new Set(); for(let i=0; i<numbers.length; i++) for(let j=i+1; j<numbers.length; j++) diffs.add(Math.abs(numbers[i] - numbers[j])); return diffs.size - (numbers.length - 1); }
 
-export function checkPoisson(num, freq, totalDraws) { 
-    if (totalDraws === 0) return false;
-    const theoreticalFreq = totalDraws / 49; 
-    return freq < (theoreticalFreq * 0.5); 
-}
+export function checkPoisson(num, freq, totalDraws) { const theoreticalFreq = totalDraws / 49; return freq < (theoreticalFreq * 0.5); }
 
-export function monteCarloSim(numbers, gameDef) { 
-    return true; 
-}
+export function monteCarloSim(numbers, gameDef) { if(gameDef.type === 'digit') return true; return true; }
 
 // ==========================================
 // 4. 命理玄學工具 (Metaphysical Tools)
@@ -627,7 +557,6 @@ export function getFlyingStars(gan) {
 }
 
 export function getHeTuNumbers(star) {
-    if (!star) return [];
     if (["武曲", "七殺", "文昌", "擎羊"].some(s => star.includes(s))) return [4, 9]; 
     if (["天機", "貪狼", "天梁"].some(s => star.includes(s))) return [3, 8]; 
     if (["太陰", "天同", "破軍", "巨門", "文曲"].some(s => star.includes(s))) return [1, 6]; 
