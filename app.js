@@ -574,7 +574,34 @@ const App = {
         } else {
             jackpotContainer.classList.add('hidden');
         }
+// [新增函式] 計算下期開獎日
+    getNextDrawDate(drawDays) {
+        if (!drawDays || drawDays.length === 0) return "--";
+        const today = new Date();
+        const currentDay = today.getDay(); // 0(週日) - 6(週六)
+        
+        // 尋找本週是否還有開獎日
+        let nextDay = drawDays.find(d => d > currentDay);
+        let daysToAdd = 0;
 
+        if (nextDay !== undefined) {
+            daysToAdd = nextDay - currentDay;
+        } else {
+            // 本週已過，找下週的第一個開獎日
+            nextDay = drawDays[0];
+            daysToAdd = (7 - currentDay) + nextDay;
+        }
+
+        const nextDate = new Date(today);
+        nextDate.setDate(today.getDate() + daysToAdd);
+
+        const y = nextDate.getFullYear();
+        const m = String(nextDate.getMonth() + 1).padStart(2, '0');
+        const d = String(nextDate.getDate()).padStart(2, '0');
+        const weekMap = ['日', '一', '二', '三', '四', '五', '六'];
+        
+        return `${y}/${m}/${d} (${weekMap[nextDate.getDay()]})`;
+    },
         this.renderSubModeUI(gameDef);
         this.renderHotStats('stat-year', data);
         this.renderHotStats('stat-month', data.slice(0, 30));
@@ -627,10 +654,15 @@ const App = {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
         const rulesContent = document.getElementById('game-rules-content');
-        rulesContent.classList.add('hidden');
+        const gameName = this.state.currentGame;
+
+        // 總是顯示區域，因為我們現在都有東西要顯示 (規則按鈕或資訊卡)
+        area.classList.remove('hidden');
+        rulesContent.classList.add('hidden'); // 預設隱藏規則內容
+        container.innerHTML = ''; // 清空容器
+
+        // 1. 如果有定義 subModes (如 3星彩, 4星彩)，渲染切換按鈕
         if (gameDef.subModes) {
-            area.classList.remove('hidden');
-            container.innerHTML = '';
             if (!this.state.currentSubMode) {
                 this.state.currentSubMode = gameDef.subModes[0].id;
             }
@@ -640,13 +672,44 @@ const App = {
                 tab.innerText = mode.name;
                 tab.onclick = () => {
                     this.state.currentSubMode = mode.id;
-                    document.querySelectorAll('.submode-tab')
-                        .forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.submode-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                 };
                 container.appendChild(tab);
             });
-            rulesContent.innerHTML = gameDef.article || "暫無說明";
+        } 
+        // 2. 如果沒有 subModes (如 大樂透, 威力彩, 539)，渲染資訊卡片 (獎金 + 日期)
+        else {
+            this.state.currentSubMode = null;
+            
+            // 抓取累積獎金 (若無資料顯示累計中)
+            let jackpotText = "累計中";
+            if (this.state.rawJackpots && this.state.rawJackpots[gameName]) {
+                // 簡單格式化數字加逗號
+                jackpotText = `$${Number(this.state.rawJackpots[gameName]).toLocaleString()}`;
+            }
+
+            // 計算下期開獎
+            const nextDate = this.getNextDrawDate(gameDef.drawDays);
+
+            // 只有大樂透和威力彩顯示獎金，其他顯示一般資訊
+            if (gameDef.type === 'lotto' || gameDef.type === 'power') {
+                container.innerHTML = `
+                    <div class="flex items-center gap-3 text-xs md:text-sm">
+                        ${gameName !== '今彩539' ? `
+                        <div class="px-3 py-1 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-200 font-bold flex items-center gap-1 shadow-sm">
+                            <span>💰</span> 累積: ${jackpotText}
+                        </div>
+                        ` : ''}
+                        <div class="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 font-bold flex items-center gap-1 shadow-sm">
+                            <span>📅</span> 下期: ${nextDate}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        rulesContent.innerHTML = gameDef.article || "暫無說明";
+    },
         } else {
             area.classList.add('hidden');
             this.state.currentSubMode = null;
@@ -964,3 +1027,4 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
