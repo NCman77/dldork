@@ -1,6 +1,6 @@
 /**
  * algo_smartwheel.js
- * 聰明包牌模組 (Phase 6 最終版)
+ * 聰明包牌模組 (Phase 6 最終版 - 修正版)
  * 核心邏輯：雙軌策略 (標準/強勢 vs 彈性/隨機)
  */
 
@@ -28,27 +28,43 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
             }
         } 
         // [策略 B] 彈性包牌 (pack_2): 區段輪轉 (Segment Rotation)
-        // 避免滑動視窗造成的重疊，改用跳躍組合
         else {
+            // [修正] 檢查 Pool 長度，不足時回退到 pack_1
+            if (pool.length < 8) {
+                console.warn(`⚠️ Pool 不足 8 個號碼，彈性包牌回退到二區包牌`);
+                const zone1 = pool.slice(0, 6).sort((a, b) => a - b);
+                if (zone1.length < 6) return [];
+                
+                for (let i = 1; i <= 8; i++) {
+                    results.push({
+                        numbers: [...zone1, i],
+                        groupReason: `二區包牌 (0${i}) - 第一區鎖定 (自動回退)`
+                    });
+                }
+                return results;
+            }
+            
             // 將 Pool 分為 4 個區段 (每段 3 碼，共 12 碼)
-            // 如果 Pool 不足 12 碼，循環補足
-            const extendedPool = [...pool, ...pool].slice(0, 12);
+            // [修正] 只在 Pool 充足時使用循環補足
+            const extendedPool = pool.length >= 12 
+                ? pool.slice(0, 12) 
+                : [...pool, ...pool].slice(0, 12);
+                
             const segA = extendedPool.slice(0, 3);
             const segB = extendedPool.slice(3, 6);
             const segC = extendedPool.slice(6, 9);
             const segD = extendedPool.slice(9, 12);
 
-            // 產生 8 種不同的組合 (A+B, C+D, A+C...)
+            // 產生 8 種不同的組合
             const combos = [
-                [...segA, ...segB], // 1
-                [...segC, ...segD], // 2
-                [...segA, ...segC], // 3
-                [...segB, ...segD], // 4
-                [...segA, ...segD], // 5
-                [...segB, ...segC], // 6
-                // 混合跳躍
-                [segA[0], segB[1], segC[2], segD[0], segA[1], segB[2]], // 7
-                [segC[0], segD[1], segA[2], segB[0], segC[1], segD[2]]  // 8
+                [...segA, ...segB],
+                [...segC, ...segD],
+                [...segA, ...segC],
+                [...segB, ...segD],
+                [...segA, ...segD],
+                [...segB, ...segC],
+                [segA[0], segB[1], segC[2], segD[0], segA[1], segB[2]],
+                [segC[0], segD[1], segA[2], segB[0], segC[1], segD[2]]
             ];
 
             for (let i = 0; i < 8; i++) {
@@ -65,52 +81,74 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
     // ==========================================
     else if (gameDef.type === 'digit') {
         const count = gameDef.count;
-        const bestNums = pool.slice(0, count); // 這裡的 pool 已經是位數最佳解 (5,8,3)
+        const bestNums = pool.slice(0, count);
         
         if (bestNums.length < count) return []; 
 
-        // [策略 A] 強勢包牌 (pack_1): 複式排列 (Permutation)
-        // 鎖定最強的號碼，買光排列
+        // [策略 A] 強勢包牌 (pack_1): 複式排列
         if (packMode === 'pack_1') {
             if (count === 3) {
+                // 3星彩：全排列 6 注
                 const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
                 perms.forEach(p => {
                     const set = [bestNums[p[0]], bestNums[p[1]], bestNums[p[2]]];
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 鎖定排列`
+                        groupReason: `立柱包牌 - 全排列`
                     });
                 });
             } else {
-                // 4星彩循環移位
-                for(let i=0; i<5; i++) {
+                // [修正] 4星彩：循環移位改為只產生 4 注（移除重複）
+                for(let i = 0; i < 4; i++) {
                     const set = [...bestNums];
-                    const shift = set.splice(0, i % 4);
+                    const shift = set.splice(0, i);
                     set.push(...shift);
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 循環排列`
+                        groupReason: `循環輪轉 - 位移 ${i+1}`
                     });
                 }
             }
         }
-        // [策略 B] 彈性包牌 (pack_2): 分組取號 (Chunking)
-        // 每一注都拿完全不同的號碼，不重疊
+        // [策略 B] 彈性包牌 (pack_2): 
+        // [完全重寫] 改為使用 setIndex 偏移邏輯
         else {
-            const targetCount = 5; 
-            for (let i = 0; i < targetCount; i++) {
-                const set = [];
-                for (let k = 0; k < count; k++) {
-                    // 直接從 Pool 中依序抓取，確保不重複
-                    // Pool 來自 app.js 收集的 Set1, Set2, Set3...
-                    const idx = (i * count + k) % pool.length;
-                    set.push(pool[idx]);
+            // [修正] 檢查 pool 是否為位數獨立格式
+            // 如果不是，發出警告並回退
+            if (pool.length < count * 5) {
+                console.warn(`⚠️ 3星彩彈性包牌需要至少 ${count * 5} 個號碼，當前只有 ${pool.length} 個`);
+                console.warn(`⚠️ 建議使用「強勢包牌」或檢查 algo_pattern 是否正確產生位數獨立的號碼`);
+                
+                // 回退策略：使用現有號碼生成不重複組合
+                const targetCount = Math.min(5, Math.floor(pool.length / count));
+                for (let i = 0; i < targetCount; i++) {
+                    const set = [];
+                    for (let k = 0; k < count; k++) {
+                        // 使用跳躍式索引避免連續號碼
+                        const idx = (i + k * targetCount) % pool.length;
+                        set.push(pool[idx]);
+                    }
+                    results.push({
+                        numbers: set,
+                        groupReason: `彈性包牌 - 跳躍組合 ${i+1}`
+                    });
                 }
-                // 數字型絕對不排序
-                results.push({
-                    numbers: set,
-                    groupReason: `彈性分組 - 組合 ${i+1}`
-                });
+            } else {
+                // [理想狀態] Pool 格式正確，使用分段邏輯
+                const targetCount = 5;
+                for (let i = 0; i < targetCount; i++) {
+                    const set = [];
+                    for (let k = 0; k < count; k++) {
+                        // 每個位數從不同的區段取號
+                        const positionOffset = k * targetCount;
+                        const idx = (positionOffset + i) % pool.length;
+                        set.push(pool[idx]);
+                    }
+                    results.push({
+                        numbers: set,
+                        groupReason: `彈性包牌 - 位數輪轉 ${i+1}`
+                    });
+                }
             }
         }
     } 
@@ -130,7 +168,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
             
             results.push({
                 numbers: set,
-                groupReason: `聰明包牌 - 優選組合`
+                groupReason: `聰明包牌 - 隨機組合 ${k+1}`
             });
         }
     }
