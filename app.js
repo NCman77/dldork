@@ -434,10 +434,9 @@ const App = {
             const liveData = await fetchLiveLotteryData();
 
             if (liveData && Object.keys(liveData).length > 0) {
-                // [新增邏輯] 從 Live Data 更新累積獎金 (取最新一期的 jackpot)
+                // 從 Live Data 更新累積獎金 (取最新一期的 jackpot)
                 for (const game in liveData) {
                     if (liveData[game].length > 0) {
-                        // 確保排序是新的在前面
                         const sorted = liveData[game].sort((a, b) => new Date(b.date) - new Date(a.date));
                         const latest = sorted[0];
                         if (latest.jackpot && latest.jackpot > 0) {
@@ -563,7 +562,7 @@ const App = {
         const gameDef = GAME_CONFIG.GAMES[gameName];
         let data = this.state.rawData[gameName] || [];
 
-        // [新增] 動態調整包牌按鈕文字與顯示狀態
+        // 動態調整包牌按鈕文字與顯示狀態
         const pack1Text = document.getElementById('btn-pack-1-text');
         const pack2Text = document.getElementById('btn-pack-2-text');
         const pack2Container = document.getElementById('btn-pack-2-container');
@@ -620,7 +619,7 @@ const App = {
         this.renderHistoryList(data.slice(0, 5));
     },
 
-    // [Step 1: 移動 getNextDrawDate 到正確位置]
+    // 開獎日計算
     getNextDrawDate(drawDays) {
         if (!drawDays || drawDays.length === 0) return "--";
         const today = new Date();
@@ -686,7 +685,6 @@ const App = {
         this.updateDashboard();
     },
 
-    // [Step 2: 修正 renderSubModeUI，清理殘留代碼]
     renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
@@ -722,7 +720,6 @@ const App = {
             // 抓取累積獎金 (若無資料顯示累計中)
             let jackpotText = "累計中";
             if (this.state.rawJackpots && this.state.rawJackpots[gameName]) {
-                // 簡單格式化數字加逗號
                 jackpotText = `$${Number(this.state.rawJackpots[gameName]).toLocaleString()}`;
             }
 
@@ -850,7 +847,7 @@ const App = {
             .classList.toggle('hidden', school !== 'wuxing');
     },
 
-// ================= 學派入口：runPrediction =================
+    // ================= 學派入口：runPrediction =================
     runPrediction() {
         const gameName = this.state.currentGame;
         const gameDef  = GAME_CONFIG.GAMES[gameName];
@@ -895,7 +892,9 @@ const App = {
             }
 
             if (result) {
-                if (!monteCarloSim(result.numbers, gameDef)) { /* fallback */ }
+                if (!monteCarloSim(result.numbers, gameDef)) {
+                    // 目前不做 fallback，只保留架構
+                }
 
                 // 更新排除名單
                 result.numbers.forEach(n => {
@@ -917,65 +916,66 @@ const App = {
                     this.renderRow(result, i + 1, rankLabel);
                 }
                 
-                // 包牌模式：若池子夠了就提早結束 (12個夠用了)
-                if (isPack && packPool.length >= 12) break;
+                // 包牌模式：若池子夠了就提早結束 (樂透型 12 個夠用了)
+                if (isPack && gameDef.type !== 'digit' && packPool.length >= 12) break;
             }
         }
 
-        // 包牌模式的後續處理
-if (isPack) {
-    let finalPool;
-    
-    // [Phase 6] 數字型遊戲使用位數獨立的 Pool
-    if (gameDef.type === 'digit') {
-        finalPool = [];
-        
-        // 嘗試從第一輪結果提取完整排名
-        let foundMetadata = false;
-        for (let i = 0; i < count; i++) {
-            const params = { 
-                data, 
-                gameDef, 
-                subModeId: this.state.currentSubMode, 
-                excludeNumbers: new Set(),
-                random: isRandom,
-                setIndex: i 
-            };
+        // ================= 包牌模式的後續處理 =================
+        if (isPack) {
+            let finalPool;
             
-            let result = null;
-            switch (school) {
-                case 'balance': result = algoBalance(params); break;
-                case 'stat':    result = algoStat(params); break;
-                case 'pattern': result = algoPattern(params); break;
-                case 'ai':      result = algoAI(params); break;
-                case 'wuxing':  result = this.algoWuxing(params); break;
+            // 數字型遊戲：使用 Pattern V4.2 提供的位數獨立排名
+            if (gameDef.type === 'digit') {
+                finalPool = [];
+                
+                let foundMetadata = false;
+                // 再跑一次「同學派演算法」，只為了抓 rankedDigits
+                for (let i = 0; i < count; i++) {
+                    const params = { 
+                        data, 
+                        gameDef, 
+                        subModeId: this.state.currentSubMode, 
+                        excludeNumbers: new Set(),
+                        random: isRandom,
+                        setIndex: i 
+                    };
+                    
+                    let result = null;
+                    switch (school) {
+                        case 'balance': result = algoBalance(params); break;
+                        case 'stat':    result = algoStat(params); break;
+                        case 'pattern': result = algoPattern(params); break;
+                        case 'ai':      result = algoAI(params); break;
+                        case 'wuxing':  result = this.algoWuxing(params); break;
+                    }
+                    
+                    if (result && result.metadata && result.metadata.rankedDigits) {
+                        // 提取每個位數的前 5 名（共 15 或 20 個號碼）
+                        result.metadata.rankedDigits.forEach(posRanked => {
+                            finalPool.push(...posRanked.slice(0, 5));
+                        });
+                        foundMetadata = true;
+                        break; // 只需要一次就夠了
+                    }
+                }
+                
+                // 其他學派目前沒有 rankedDigits，就回退到混合 pool
+                if (!foundMetadata) {
+                    console.warn(`⚠️ ${school} 學派未提供位數排名，使用混合 Pool`);
+                    finalPool = [...new Set(packPool)];
+                }
+            } 
+            // 樂透型 / 威力彩：使用原本的 pool 前 12 碼
+            else {
+                finalPool = [...new Set(packPool)]
+                    .slice(0, 12)
+                    .sort((a,b)=>a-b);
             }
             
-            // 檢查是否有位數排名資料
-            if (result && result.metadata && result.metadata.rankedDigits) {
-                // 提取每個位數的前 5 名（共 15 或 20 個號碼）
-                result.metadata.rankedDigits.forEach(posRanked => {
-                    finalPool.push(...posRanked.slice(0, 5));
-                });
-                foundMetadata = true;
-                break; // 只需要一次就夠了
-            }
+            this.runSmartWheel(data, gameDef, finalPool, mode);
         }
-        
-        // 如果沒有 metadata（其他學派），回退到舊邏輯
-        if (!foundMetadata) {
-            console.warn(`⚠️ ${school} 學派未提供位數排名，使用混合 Pool`);
-            finalPool = [...new Set(packPool)];
-        }
-    } 
-    // 樂透型/威力彩：使用原邏輯
-    else {
-        finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
-    }
-    
-    this.algoSmartWheel(data, gameDef, finalPool, mode);
-}
-
+    },
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1028,50 +1028,56 @@ if (isPack) {
             groupReason: `💡 流年格局：[${dominant}] 主導。`
         };
     },
-algoSmartWheel(data, gameDef, pool, packMode) {
-    // [修改] 傳入 packMode ('pack_1' or 'pack_2')
-    
-    // [新增] Pool 質量檢查
-    if (pool.length < 6) {
-        console.warn(`⚠️ 包牌 Pool 不足：只有 ${pool.length} 個號碼，建議至少 6 個`);
-    }
-    
-    // [新增] 檢查連續號碼（可能導致組合不佳）
-    if (gameDef.type !== 'digit') {
-        let consecutiveCount = 1;
-        const sortedPool = [...pool].sort((a, b) => a - b);
-        for (let i = 1; i < sortedPool.length; i++) {
-            if (sortedPool[i] === sortedPool[i-1] + 1) {
-                consecutiveCount++;
-                if (consecutiveCount >= 4) {
-                    console.warn(`⚠️ Pool 包含過多連續號碼，可能影響包牌多樣性`);
-                    break;
+
+    // 聰明包牌入口（包牌專用渲染）
+    runSmartWheel(data, gameDef, pool, packMode) {
+        // Pool 質量檢查
+        if (!Array.isArray(pool) || pool.length === 0) {
+            document.getElementById('prediction-output').innerHTML =
+                '<div class="p-4 text-center text-stone-400">包牌 Pool 為空，請先產生推薦號碼</div>';
+            return;
+        }
+
+        if (pool.length < 6 && gameDef.type !== 'digit') {
+            console.warn(`⚠️ 包牌 Pool 不足：只有 ${pool.length} 個號碼，建議至少 6 個`);
+        }
+        
+        // 檢查連續號碼（樂透型）
+        if (gameDef.type !== 'digit') {
+            let consecutiveCount = 1;
+            const sortedPool = [...pool].sort((a, b) => a - b);
+            for (let i = 1; i < sortedPool.length; i++) {
+                if (sortedPool[i] === sortedPool[i-1] + 1) {
+                    consecutiveCount++;
+                    if (consecutiveCount >= 4) {
+                        console.warn(`⚠️ Pool 包含過多連續號碼，可能影響包牌多樣性`);
+                        break;
+                    }
+                } else {
+                    consecutiveCount = 1;
                 }
-            } else {
-                consecutiveCount = 1;
             }
         }
-    }
-    
-    const results = algoSmartWheel(data, gameDef, pool, packMode);
-    
-    if (!results || results.length === 0) {
-        document.getElementById('prediction-output').innerHTML = 
-            '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
-        return;
-    }
+        
+        const results = algoSmartWheel(data, gameDef, pool, packMode);
+        
+        if (!results || results.length === 0) {
+            document.getElementById('prediction-output').innerHTML = 
+                '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
+            return;
+        }
 
-    results.forEach((res, idx) =>
-        this.renderRow(
-            {
-                numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                groupReason: res.groupReason
-            },
-            idx + 1,
-            `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
-        )
-    );
-},
+        results.forEach((res, idx) =>
+            this.renderRow(
+                {
+                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
+                    groupReason: res.groupReason
+                },
+                idx + 1,
+                `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
+            )
+        );
+    },
 
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
@@ -1084,7 +1090,6 @@ algoSmartWheel(data, gameDef, pool, packMode) {
         };
         const colorClass = colors[this.state.currentSchool] || 'bg-stone-200';
         
-        // [修改] 如果有傳入 label 就使用 label，否則預設 SET {index}
         const displayLabel = label ? label : `SET ${index}`;
 
         let html = `
@@ -1168,12 +1173,3 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
-
-
-
-
-
-
-
-
-
