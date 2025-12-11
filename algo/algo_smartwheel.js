@@ -20,7 +20,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
             const zone1 = pool.slice(0, 6).sort((a, b) => a - b);
             if (zone1.length < 6) return []; 
 
-            for (let i = 1; i <= 8; i++) {
+            for (let i = 1; i <= gameDef.zone2; i++) {
                 results.push({
                     numbers: [...zone1, i],
                     groupReason: `二區包牌 (0${i}) - 第一區鎖定`
@@ -35,7 +35,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                 const zone1 = pool.slice(0, 6).sort((a, b) => a - b);
                 if (zone1.length < 6) return [];
                 
-                for (let i = 1; i <= 8; i++) {
+                for (let i = 1; i <= gameDef.zone2; i++) {
                     results.push({
                         numbers: [...zone1, i],
                         groupReason: `二區包牌 (0${i}) - 第一區鎖定 (自動回退)`
@@ -67,7 +67,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                 [segC[0], segD[1], segA[2], segB[0], segC[1], segD[2]]
             ];
 
-            for (let i = 0; i < 8; i++) {
+            for (let i = 0; i < gameDef.zone2; i++) {
                 const set = combos[i % combos.length].sort((a,b)=>a-b);
                 results.push({
                     numbers: [...set, i + 1],
@@ -89,7 +89,11 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
         if (packMode === 'pack_1') {
             if (count === 3) {
                 // 3星彩：全排列 6 注
-                const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
+                const perms = [
+                    [0,1,2], [0,2,1],
+                    [1,0,2], [1,2,0],
+                    [2,0,1], [2,1,0]
+                ];
                 perms.forEach(p => {
                     const set = [bestNums[p[0]], bestNums[p[1]], bestNums[p[2]]];
                     results.push({
@@ -98,8 +102,8 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                     });
                 });
             } else {
-                // [修正] 4星彩：循環移位改為只產生 4 注（移除重複）
-                for(let i = 0; i < 4; i++) {
+                // 4星彩：循環移位改為只產生 4 注（移除重複）
+                for (let i = 0; i < 4; i++) {
                     const set = [...bestNums];
                     const shift = set.splice(0, i);
                     set.push(...shift);
@@ -110,21 +114,24 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                 }
             }
         }
-        // [策略 B] 彈性包牌 (pack_2): 
-        // [完全重寫] 改為使用 setIndex 偏移邏輯
+        // [策略 B] 彈性包牌 (pack_2): 位數輪轉 (Phase 6)
         else {
             // [修正] 檢查 pool 是否為位數獨立格式
-            // 如果不是，發出警告並回退
+            // 正常情況：pool 長度應該是 count * 5
             if (pool.length < count * 5) {
-                console.warn(`⚠️ 3星彩彈性包牌需要至少 ${count * 5} 個號碼，當前只有 ${pool.length} 個`);
-                console.warn(`⚠️ 建議使用「強勢包牌」或檢查 algo_pattern 是否正確產生位數獨立的號碼`);
+                console.warn(
+                    `⚠️ ${gameDef.count}星彈性包牌需要至少 ${count * 5} 個號碼，當前只有 ${pool.length} 個`
+                );
+                console.warn(
+                    `⚠️ 建議使用「強勢包牌」或檢查 algo_pattern 是否正確產生位數獨立的號碼`
+                );
                 
                 // 回退策略：使用現有號碼生成不重複組合
                 const targetCount = Math.min(5, Math.floor(pool.length / count));
                 for (let i = 0; i < targetCount; i++) {
                     const set = [];
                     for (let k = 0; k < count; k++) {
-                        // 使用跳躍式索引避免連續號碼
+                        // 使用跳躍式索引避免全部集中同一區段
                         const idx = (i + k * targetCount) % pool.length;
                         set.push(pool[idx]);
                     }
@@ -135,12 +142,12 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                 }
             } else {
                 // [理想狀態] Pool 格式正確，使用分段邏輯
+                // pool = [P1 前5名, P2 前5名, P3 前5名, (P4 前5名)]
                 const targetCount = 5;
                 for (let i = 0; i < targetCount; i++) {
                     const set = [];
                     for (let k = 0; k < count; k++) {
-                        // 每個位數從不同的區段取號
-                        const positionOffset = k * targetCount;
+                        const positionOffset = k * targetCount; // 每個位數一段
                         const idx = (positionOffset + i) % pool.length;
                         set.push(pool[idx]);
                     }
@@ -153,7 +160,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
         }
     } 
     // ==========================================
-    // 3. 樂透型 (大樂透/539)
+    // 3. 樂透型 (大樂透 / 539)
     // ==========================================
     else {
         const targetCount = 5; 
