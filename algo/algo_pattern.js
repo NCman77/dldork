@@ -637,7 +637,3 @@ function getWeightedHotNumbers(data, range, needed, checkSet) {
         .filter(n => !checkSet.has(n)) 
         .slice(0, needed);
 }
-
-
-
-
