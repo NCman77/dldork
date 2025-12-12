@@ -1169,11 +1169,3 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 window.app = App;
 window.onload = () => App.init();
 
-
-
-
-
-
-
-
-
