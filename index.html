@@ -113,6 +113,11 @@
         .title-divider::before, .title-divider::after { content: ''; display: block; flex: 1; height: 2px; background-color: #e7e5e4; border-radius: 2px; }
         .title-divider::before { margin-right: 1.5rem; }
         .title-divider::after { margin-left: 1.5rem; }
+
+        /* [修復] 當 submode-tabs 無內容時隱藏整個 submode-area (避免移除子玩法後出現空白區) */
+        @supports(selector(:has(*))) {
+            #submode-area:not(:has(#submode-tabs > *)) { display: none !important; }
+        }
     </style>
 </head>
 <body class="p-4 md:p-6 min-h-screen flex flex-col font-medium text-sm">
@@ -347,5 +352,3 @@
     <script type="module" src="app.js"></script>
 </body>
 </html>
-
-
