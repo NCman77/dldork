@@ -603,20 +603,10 @@ function handleDigitPatternV6(data, gameDef, strategy = 'default', isRandom = fa
 
     // [關鍵] 數字型遊戲絕對不排序！(921 != 129)
     const reasonPrefix = isRandom ? "隨機" : "嚴選";
-    
-    // [Phase 6 修正] 回傳完整的位數排名供包牌使用
-    const rankedDigits = rankedPos.map(posRanked => 
-        posRanked.map(item => item.n) // 只回傳號碼陣列
-    );
-    
     return { 
         numbers: result, // 原順序回傳
         groupReason: `${reasonPrefix} V4.2 位數統計`,
-        metadata: { 
-            setIndex,
-            strategy: 'positional',
-            rankedDigits: rankedDigits // ← 新增：完整的位數排名
-        }
+        metadata: { setIndex }
     };
 }
 
@@ -637,7 +627,6 @@ function getWeightedHotNumbers(data, range, needed, checkSet) {
         .filter(n => !checkSet.has(n)) 
         .slice(0, needed);
 }
-
 
 
 
