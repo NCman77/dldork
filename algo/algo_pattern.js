@@ -259,7 +259,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     for (const cand of dragCandidates) {
         if (result.length >= allocation.drag) break;
-        if (!selected.has(cand.num)) {
+        if (!selected.has(cand.num) && isConsecutiveSafe(result, cand.num)) {
             selected.add(cand.num);
             checkSet.add(cand.num);
             result.push({ val: cand.num, tag: `${cand.from}拖` });
@@ -274,7 +274,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     for (const n of neighborCandidates) {
         if (result.length >= allocation.drag + allocation.neighbor) break;
-        if (!selected.has(n.num)) {
+        if (!selected.has(n.num) && isConsecutiveSafe(result, n.num)) {
             selected.add(n.num);
             checkSet.add(n.num);
             result.push({ val: n.num, tag: `${n.from}鄰` });
@@ -288,7 +288,7 @@ function handleComboPatternV4(data, gameDef, excludeNumbers, isRandom, setIndex)
 
     for (const t of tailCandidates) {
         if (result.length >= count) break;
-        if (!selected.has(t.num)) {
+        if (!selected.has(t.num) && isConsecutiveSafe(result, t.num)) {
             selected.add(t.num);
             checkSet.add(t.num);
             result.push({ val: t.num, tag: `${t.tail}尾` });
@@ -627,6 +627,3 @@ function getWeightedHotNumbers(data, range, needed, checkSet) {
         .filter(n => !checkSet.has(n)) 
         .slice(0, needed);
 }
-
-
-
