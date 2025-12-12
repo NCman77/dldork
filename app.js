@@ -923,59 +923,13 @@ const App = {
         }
 
         // 包牌模式的後續處理
-if (isPack) {
-    let finalPool;
-    
-    // [Phase 6] 數字型遊戲使用位數獨立的 Pool
-    if (gameDef.type === 'digit') {
-        finalPool = [];
-        
-        // 嘗試從第一輪結果提取完整排名
-        let foundMetadata = false;
-        for (let i = 0; i < count; i++) {
-            const params = { 
-                data, 
-                gameDef, 
-                subModeId: this.state.currentSubMode, 
-                excludeNumbers: new Set(),
-                random: isRandom,
-                setIndex: i 
-            };
-            
-            let result = null;
-            switch (school) {
-                case 'balance': result = algoBalance(params); break;
-                case 'stat':    result = algoStat(params); break;
-                case 'pattern': result = algoPattern(params); break;
-                case 'ai':      result = algoAI(params); break;
-                case 'wuxing':  result = this.algoWuxing(params); break;
-            }
-            
-            // 檢查是否有位數排名資料
-            if (result && result.metadata && result.metadata.rankedDigits) {
-                // 提取每個位數的前 5 名（共 15 或 20 個號碼）
-                result.metadata.rankedDigits.forEach(posRanked => {
-                    finalPool.push(...posRanked.slice(0, 5));
-                });
-                foundMetadata = true;
-                break; // 只需要一次就夠了
-            }
+        if (isPack) {
+            // 取前 12 個不重複號碼作為包牌池 (大樂透/威力彩需要較多)
+            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
+            // [修改] 將 mode (pack_1/pack_2) 傳遞給包牌模組
+            this.algoSmartWheel(data, gameDef, finalPool, mode);
         }
-        
-        // 如果沒有 metadata（其他學派），回退到舊邏輯
-        if (!foundMetadata) {
-            console.warn(`⚠️ ${school} 學派未提供位數排名，使用混合 Pool`);
-            finalPool = [...new Set(packPool)];
-        }
-    } 
-    // 樂透型/威力彩：使用原邏輯
-    else {
-        finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
-    }
-    
-    this.algoSmartWheel(data, gameDef, finalPool, mode);
-}
-
+    },
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1029,50 +983,26 @@ if (isPack) {
         };
     },
 algoSmartWheel(data, gameDef, pool, packMode) {
-    // [修改] 傳入 packMode ('pack_1' or 'pack_2')
-    
-    // [新增] Pool 質量檢查
-    if (pool.length < 6) {
-        console.warn(`⚠️ 包牌 Pool 不足：只有 ${pool.length} 個號碼，建議至少 6 個`);
-    }
-    
-    // [新增] 檢查連續號碼（可能導致組合不佳）
-    if (gameDef.type !== 'digit') {
-        let consecutiveCount = 1;
-        const sortedPool = [...pool].sort((a, b) => a - b);
-        for (let i = 1; i < sortedPool.length; i++) {
-            if (sortedPool[i] === sortedPool[i-1] + 1) {
-                consecutiveCount++;
-                if (consecutiveCount >= 4) {
-                    console.warn(`⚠️ Pool 包含過多連續號碼，可能影響包牌多樣性`);
-                    break;
-                }
-            } else {
-                consecutiveCount = 1;
-            }
+        // [修改] 傳入 packMode ('pack_1' or 'pack_2')
+        const results = algoSmartWheel(data, gameDef, pool, packMode);
+        
+        if (!results || results.length === 0) {
+            document.getElementById('prediction-output').innerHTML = 
+                '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
+            return;
         }
-    }
-    
-    const results = algoSmartWheel(data, gameDef, pool, packMode);
-    
-    if (!results || results.length === 0) {
-        document.getElementById('prediction-output').innerHTML = 
-            '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
-        return;
-    }
 
-    results.forEach((res, idx) =>
-        this.renderRow(
-            {
-                numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                groupReason: res.groupReason
-            },
-            idx + 1,
-            `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
-        )
-    );
-},
-
+        results.forEach((res, idx) =>
+            this.renderRow(
+                {
+                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
+                    groupReason: res.groupReason
+                },
+                idx + 1,
+                `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
+            )
+        );
+    },
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
         const colors = {
