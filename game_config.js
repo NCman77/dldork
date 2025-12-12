@@ -127,26 +127,13 @@ GAMES: {
             range: 9,
             count: 3,
             drawDays: [1, 2, 3, 4, 5, 6], // 新增
-            desc: "從000~999中選號，分為正彩、組彩、對彩。",
-            subModes: [
-                { id: 'direct', name: '🔴 正彩', count: 3, rule: '需數字與位置完全對中' },
-                { id: 'group', name: '🔵 組彩', count: 3, rule: '數字對中即可，不限位置' },
-                { id: 'pair', name: '🟢 對彩', count: 2, rule: '僅需對中前兩碼或後兩碼' }
-            ],
+            desc: "從000~999中選號，選取3位數字。",
+            subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg">三星彩玩法規則</h5>
                     <div class="p-3 bg-white rounded border border-stone-200">
-                        <strong class="block mb-1 text-rose-600">1. 正彩 (Direct)</strong>
-                        <p>數字與位置需完全相同。機率 1/1000。適合追求高賠率的玩家。</p>
-                    </div>
-                    <div class="p-3 bg-white rounded border border-stone-200">
-                        <strong class="block mb-1 text-blue-600">2. 組彩 (Group)</strong>
-                        <p>三個數字相同即可，不限順序。例如開獎 123，買 321 也中獎。</p>
-                    </div>
-                    <div class="p-3 bg-white rounded border border-stone-200">
-                        <strong class="block mb-1 text-green-600">3. 對彩 (Pair)</strong>
-                        <p>只對前兩碼或後兩碼。機率 1/100。適合穩健型玩家。</p>
+                        <p>從000~999中任選一組三位數字進行投注。開獎後需依規則判定是否中獎。</p>
                     </div>
                     
                     <h5 class="font-bold text-stone-800 text-lg mt-4">💡 實戰攻略 (專家級)</h5>
@@ -163,21 +150,13 @@ GAMES: {
             range: 9,
             count: 4,
             drawDays: [1, 2, 3, 4, 5, 6], // 新增
-            desc: "從0000~9999中選號，分為正彩、組彩。",
-            subModes: [
-                { id: 'direct', name: '🔴 正彩', count: 4, rule: '需數字與位置完全對中' },
-                { id: 'group', name: '🔵 組彩', count: 4, rule: '數字對中即可，不限位置' }
-            ],
+            desc: "從0000~9999中選號，選取4位數字。",
+            subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
                     <h5 class="font-bold text-stone-800 text-lg">四星彩玩法規則</h5>
                     <div class="p-3 bg-white rounded border border-stone-200">
-                        <strong class="block mb-1 text-rose-600">1. 正彩 (Direct)</strong>
-                        <p>四個數字與位置需完全相同。機率 1/10000。挑戰最高難度。</p>
-                    </div>
-                    <div class="p-3 bg-white rounded border border-stone-200">
-                        <strong class="block mb-1 text-blue-600">2. 組彩 (Group)</strong>
-                        <p>四個數字相同即可，不限順序。含 24組彩(全異)、12組彩(一對)、6組彩(兩對)、4組彩(三同)。</p>
+                        <p>從0000~9999中任選一組四位數字進行投注。開獎後需依規則判定是否中獎。</p>
                     </div>
                 </div>
             `
@@ -312,4 +291,3 @@ GAMES: {
         }
     }
 };
-
