@@ -12,12 +12,89 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
     }
 
     // ==========================================
+    // [新增] 通用工具：強度排序 + 連號限制 (最多 3 連號)
+    // ==========================================
+    const MAX_CONSECUTIVE = 3;
+    const DECAY = 0.995;
+    const LOOKBACK = 80;
+
+    const getMaxConsecutiveRun = (nums) => {
+        const sorted = [...nums].sort((a, b) => a - b);
+        let maxCons = 1, currentCons = 1;
+        for (let i = 1; i < sorted.length; i++) {
+            if (sorted[i] === sorted[i - 1] + 1) currentCons++;
+            else currentCons = 1;
+            if (currentCons > maxCons) maxCons = currentCons;
+        }
+        return maxCons;
+    };
+
+    const isConsecutiveOk = (nums) => getMaxConsecutiveRun(nums) <= MAX_CONSECUTIVE;
+
+    const buildZone1ScoreMap = () => {
+        const score = new Map();
+        const lookback = Math.min(LOOKBACK, Array.isArray(data) ? data.length : 0);
+        const zone1Count = gameDef && typeof gameDef.count === 'number' ? gameDef.count : 6;
+
+        for (let i = 0; i < lookback; i++) {
+            const d = data[i];
+            if (!d || !Array.isArray(d.numbers)) continue;
+            const weight = Math.pow(DECAY, i);
+            d.numbers.slice(0, zone1Count).forEach(n => {
+                if (typeof n !== 'number') return;
+                score.set(n, (score.get(n) || 0) + weight);
+            });
+        }
+        return score;
+    };
+
+    const rankPoolByScore = (inputPool) => {
+        const scoreMap = buildZone1ScoreMap();
+        const uniq = [...new Set(inputPool)].filter(n => typeof n === 'number');
+        return uniq
+            .map(n => ({ n, s: scoreMap.get(n) || 0 }))
+            .sort((a, b) => (b.s - a.s) || (a.n - b.n))
+            .map(x => x.n);
+    };
+
+    const pickSetGreedy = (ranked, need) => {
+        const set = [];
+        for (const n of ranked) {
+            if (set.includes(n)) continue;
+            const next = [...set, n];
+            if (isConsecutiveOk(next)) set.push(n);
+            if (set.length >= need) break;
+        }
+        return set;
+    };
+
+    const completeSet = (seed, ranked, need) => {
+        let set = [...new Set(seed)];
+        if (set.length > need) set = set.slice(0, need);
+
+        if (!isConsecutiveOk(set)) {
+            return pickSetGreedy(ranked, need);
+        }
+
+        for (const n of ranked) {
+            if (set.length >= need) break;
+            if (set.includes(n)) continue;
+            const next = [...set, n];
+            if (isConsecutiveOk(next)) set.push(n);
+        }
+        return set;
+    };
+
+    // ==========================================
     // 1. 威力彩 (Power)
     // ==========================================
     if (gameDef.type === 'power') {
+        const rankedPool = rankPoolByScore(pool);
+
         // [策略 A] 二區包牌 (pack_1): 鎖定最強 6 碼
         if (packMode === 'pack_1') {
-            const zone1 = pool.slice(0, 6).sort((a, b) => a - b);
+            let zone1 = pickSetGreedy(rankedPool, 6);
+            zone1 = completeSet(zone1, rankedPool, 6).sort((a, b) => a - b);
             if (zone1.length < 6) return []; 
 
             for (let i = 1; i <= 8; i++) {
@@ -32,7 +109,8 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
         else {
             // 將 Pool 分為 4 個區段 (每段 3 碼，共 12 碼)
             // 如果 Pool 不足 12 碼，循環補足
-            const extendedPool = [...pool, ...pool].slice(0, 12);
+            const base = rankedPool.length > 0 ? rankedPool : [...new Set(pool)];
+            const extendedPool = [...base, ...base].slice(0, 12);
             const segA = extendedPool.slice(0, 3);
             const segB = extendedPool.slice(3, 6);
             const segC = extendedPool.slice(6, 9);
@@ -52,7 +130,9 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
             ];
 
             for (let i = 0; i < 8; i++) {
-                const set = combos[i % combos.length].sort((a,b)=>a-b);
+                let set = [...new Set(combos[i % combos.length])];
+                set = completeSet(set, base, 6).sort((a, b) => a - b);
+
                 results.push({
                     numbers: [...set, i + 1],
                     groupReason: `彈性輪轉包牌 (0${i+1}) - 區段跳躍`
@@ -65,7 +145,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
     // ==========================================
     else if (gameDef.type === 'digit') {
         const count = gameDef.count;
-        const bestNums = pool.slice(0, count); // 這裡的 pool 已經是位數最佳解 (5,8,3)
+        const bestNums = pool.slice(0, count); // 這裡的 pool 來自 app.js 收集的 Set1, Set2, Set3...
         
         if (bestNums.length < count) return []; 
 
@@ -78,7 +158,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                     const set = [bestNums[p[0]], bestNums[p[1]], bestNums[p[2]]];
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 鎖定排列`
+                        groupReason: `強勢複式 - 鎖定排列`
                     });
                 });
             } else {
@@ -89,7 +169,7 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
                     set.push(...shift);
                     results.push({
                         numbers: set,
-                        groupReason: `正彩複式 - 循環排列`
+                        groupReason: `強勢複式 - 循環排列`
                     });
                 }
             }
@@ -119,19 +199,58 @@ export function algoSmartWheel(data, gameDef, pool, packMode = 'pack_1') {
     // ==========================================
     else {
         const targetCount = 5; 
-        for (let k = 0; k < targetCount; k++) {
-            // Fisher-Yates 洗牌
-            const shuffled = [...pool];
-            for (let i = shuffled.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        const rankedPool = rankPoolByScore(pool);
+
+        // pack_1：標準/強勢 → deterministic + 連號限制
+        if (packMode === 'pack_1') {
+            const base = rankedPool.length > 0 ? rankedPool : [...new Set(pool)];
+            const step = base.length > 0 ? Math.max(1, Math.floor(base.length / targetCount)) : 1;
+
+            for (let k = 0; k < targetCount; k++) {
+                const offset = base.length > 0 ? (k * step) % base.length : 0;
+                const rotated = base.slice(offset).concat(base.slice(0, offset));
+
+                let set = pickSetGreedy(rotated, gameDef.count);
+                set = completeSet(set, base, gameDef.count).sort((a, b) => a - b);
+
+                results.push({
+                    numbers: set,
+                    groupReason: `聰明包牌 - 優選組合`
+                });
             }
-            const set = shuffled.slice(0, gameDef.count).sort((a, b) => a - b);
-            
-            results.push({
-                numbers: set,
-                groupReason: `聰明包牌 - 優選組合`
-            });
+        }
+        // pack_2：彈性/隨機 → 保留隨機，但仍套用連號限制
+        else {
+            for (let k = 0; k < targetCount; k++) {
+                let set = [];
+                let tries = 0;
+
+                while (tries < 12 && set.length < gameDef.count) {
+                    // Fisher-Yates 洗牌
+                    const shuffled = [...pool];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                    const candidate = [...new Set(shuffled)].slice(0, gameDef.count);
+                    if (candidate.length === gameDef.count && isConsecutiveOk(candidate)) {
+                        set = candidate.sort((a, b) => a - b);
+                        break;
+                    }
+                    tries++;
+                }
+
+                if (set.length < gameDef.count) {
+                    let fallback = pickSetGreedy(rankedPool, gameDef.count);
+                    fallback = completeSet(fallback, rankedPool, gameDef.count).sort((a, b) => a - b);
+                    set = fallback;
+                }
+                
+                results.push({
+                    numbers: set,
+                    groupReason: `聰明包牌 - 優選組合`
+                });
+            }
         }
     }
 
