@@ -999,8 +999,9 @@ runPrediction() {
             numbers: [...pickZone1, ...pickZone2],
             groupReason: `💡 流年格局：[${dominant}] 主導。`
         };
-    },
-algoSmartWheel(data, gameDef, pool, packMode) {
+    },  // ← 這裡加上逗號！
+
+    algoSmartWheel(data, gameDef, pool, packMode) {
         // [修改] 傳入 packMode ('pack_1' or 'pack_2')
         const results = algoSmartWheel(data, gameDef, pool, packMode);
         
@@ -1116,6 +1117,7 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
