@@ -25,6 +25,7 @@
  * 10. ✅ 樂透型包牌 excludeNumbers 支援
  * 11. ✅ dragTop 配置生效（8個拖牌候選）
  * 12. ✅ targetCount 語意文檔說明
+ * 12. ✅ 支援 3星彩笛卡兒積
  */
 
 // ==========================================
@@ -1188,3 +1189,4 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
