@@ -131,17 +131,17 @@ GAMES: {
             subModes: null,
             article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
-                    <h5 class="font-bold text-stone-800 text-lg">三星彩玩法規則</h5>
-                    <div class="p-3 bg-white rounded border border-stone-200">
-                        <p>從000~999中任選一組三位數字進行投注。開獎後需依規則判定是否中獎。</p>
+                    <h5 class="font-bold text-stone-800 text-lg">3星彩玩法規則</h5>
+                    <p>3星彩是一種三位數字(佰、拾、個位數)遊戲，您必須從000~999中選出一組三位數進行投注。開獎時，開獎單位將從000~999中隨機開出一組三位數號碼，該組號碼就是該期3星彩的中獎號碼，也稱為「獎號」。如您的選號符合該期任一種中獎情形，即為中獎，並可依規定兌領獎金。</p>
+                    <div class="overflow-x-auto rounded-lg border border-stone-200">
+                        <table class="w-full text-left text-sm text-stone-600">
+                            <tbody class="divide-y divide-stone-100 bg-white">
+                                <tr><td class="px-3 py-3 font-bold text-rose-600">壹獎</td><td class="px-3 py-3">三位數全部對中</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">貳獎</td><td class="px-3 py-3">對中拾位數和個位數，且佰位數未對中</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">參獎</td><td class="px-3 py-3">對中個位數，且佰位數和拾位數均未對中</td></tr>
+                            </tbody>
+                        </table>
                     </div>
-                    
-                    <h5 class="font-bold text-stone-800 text-lg mt-4">💡 實戰攻略 (專家級)</h5>
-                    <ul class="list-disc pl-5 space-y-2">
-                        <li><strong>和值分析：</strong>建議鎖定 10~20 的「黃金和值區間」。</li>
-                        <li><strong>冷熱配比：</strong>建議 1 熱 + 2 溫 的組合。</li>
-                        <li><strong>形態判斷：</strong>觀察近期是「對子 (AAB)」多還是「雜六 (ABC)」多。</li>
-                    </ul>
                 </div>
             `
         },
@@ -152,11 +152,18 @@ GAMES: {
             drawDays: [1, 2, 3, 4, 5, 6], // 新增
             desc: "從0000~9999中選號，選取4位數字。",
             subModes: null,
-            article: `
+article: `
                 <div class="space-y-4 text-sm text-stone-600 leading-relaxed">
-                    <h5 class="font-bold text-stone-800 text-lg">四星彩玩法規則</h5>
-                    <div class="p-3 bg-white rounded border border-stone-200">
-                        <p>從0000~9999中任選一組四位數字進行投注。開獎後需依規則判定是否中獎。</p>
+                    <h5 class="font-bold text-stone-800 text-lg">4星彩玩法規則</h5>
+                    <p>4星彩是一種四位數字(仟、佰、拾、個位數)遊戲，您必須從0000~9999中選出一組四位數進行投注。開獎時，開獎單位將從0000~9999中隨機開出一組四位數號碼，該組號碼就是該期4星彩的中獎號碼，也稱為「獎號」。如您的選號符合該期任一種中獎情形，即為中獎，並可依規定兌領獎金。</p>
+                    <div class="overflow-x-auto rounded-lg border border-stone-200">
+                        <table class="w-full text-left text-sm text-stone-600">
+                            <tbody class="divide-y divide-stone-100 bg-white">
+                                <tr><td class="px-3 py-3 font-bold text-rose-600">壹獎</td><td class="px-3 py-3">四位數全部對中</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">貳獎</td><td class="px-3 py-3">對中佰位數、拾位數和個位數，且仟位數未對中</td></tr>
+                                <tr><td class="px-3 py-3 font-bold text-stone-700">參獎</td><td class="px-3 py-3">對中拾位數和個位數，且仟位數和佰位數未對中</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             `
@@ -291,3 +298,4 @@ GAMES: {
         }
     }
 };
+
