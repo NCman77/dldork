@@ -1,7 +1,7 @@
 /**
  * app.js
  * 核心邏輯層：負責資料處理、演算法運算、DOM 渲染與事件綁定
- * V26.0：學派分流完成（平衡 / 統計 / 關聯 / AI / 五行），不做 fallback
+ * V26.1 Fix：修復關聯學派 V6.1 包牌崩潰問題，建立直通渲染邏輯
  */
 
 import { GAME_CONFIG } from './game_config.js';
@@ -16,7 +16,8 @@ import { algoStat } from './algo/algo_stat.js';
 import { algoPattern } from './algo/algo_pattern.js';
 import { algoBalance } from './algo/algo_balance.js';
 import { algoAI } from './algo/algo_ai.js';
-import { algoSmartWheel } from './algo/algo_smartwheel.js';
+// [Fix] 重新命名 import 以避免與 App 方法名稱衝突
+import { algoSmartWheel as generateSmartWheel } from './algo/algo_smartwheel.js';
 
 // 五行學派子系統（紫微 / 姓名 / 星盤 / 五行生肖）
 import { applyZiweiLogic } from './algo/algo_Ziwei.js';
@@ -620,7 +621,6 @@ const App = {
         this.renderHistoryList(data.slice(0, 5));
     },
 
-    // [Step 1: 移動 getNextDrawDate 到正確位置]
     getNextDrawDate(drawDays) {
         if (!drawDays || drawDays.length === 0) return "--";
         const today = new Date();
@@ -686,7 +686,6 @@ const App = {
         this.updateDashboard();
     },
 
-    // [Step 2: 修正 renderSubModeUI，清理殘留代碼]
     renderSubModeUI(gameDef) {
         const area = document.getElementById('submode-area');
         const container = document.getElementById('submode-tabs');
@@ -698,8 +697,8 @@ const App = {
         rulesContent.classList.add('hidden'); // 預設隱藏規則內容
         container.innerHTML = ''; // 清空容器
 
-        // 1. 如果有定義 subModes (如 3星彩, 4星彩)，渲染切換按鈕
-        if (gameDef.subModes) {
+        // 1. 強制過濾：即使 Config 有定義，針對 3星/4星 也強制不渲染 Tab，只保留規則
+        if (gameDef.subModes && !['3星彩', '4星彩'].includes(gameName)) {
             if (!this.state.currentSubMode) {
                 this.state.currentSubMode = gameDef.subModes[0].id;
             }
@@ -714,8 +713,8 @@ const App = {
                 };
                 container.appendChild(tab);
             });
-        } 
-        // 2. 如果沒有 subModes (如 大樂透, 威力彩, 539)，渲染資訊卡片 (獎金 + 日期)
+        }
+        // 2. 如果沒有 subModes 或被強制過濾 (如 3星彩, 4星彩, 大樂透, 威力彩)，渲染資訊卡片 (獎金 + 日期)
         else {
             this.state.currentSubMode = null;
             
@@ -730,7 +729,7 @@ const App = {
             const nextDate = this.getNextDrawDate(gameDef.drawDays);
 
             // 只有大樂透和威力彩顯示獎金，其他顯示一般資訊
-if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
+            if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
                 container.innerHTML = `
                     <div class="flex items-center gap-3 text-xs md:text-sm">
                         ${['大樂透', '威力彩'].includes(gameName) ? `
@@ -850,104 +849,113 @@ if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
             .classList.toggle('hidden', school !== 'wuxing');
     },
 
-// ================= 學派入口：runPrediction =================\n runPrediction() {
-runPrediction() {
-  const gameName = this.state.currentGame;
-  const gameDef = GAME_CONFIG.GAMES[gameName];
-  let data = this.state.rawData[gameName];
-  if (!gameDef) return;
+    // ================= 學派入口：runPrediction (Fix: V6.1 Pattern Support) =================
+    runPrediction() {
+        const gameName = this.state.currentGame;
+        const gameDef  = GAME_CONFIG.GAMES[gameName];
+        let data       = this.state.rawData[gameName] || [];
+        if (!gameDef) return;
 
-  const modeInput = document.querySelector('input[name="count"]:checked');
-  const mode = modeInput ? modeInput.value : 'strict';
-  
-  const container = document.getElementById('prediction-output');
-  container.innerHTML = '';
-  document.getElementById('result-area').classList.remove('hidden');
+        const modeInput = document.querySelector('input[name="count"]:checked');
+        const mode = modeInput ? modeInput.value : 'strict'; // strict, random, pack_1, pack_2
 
-  const school = this.state.currentSchool;
+        const container = document.getElementById('prediction-output');
+        container.innerHTML = '';
+        document.getElementById('result-area').classList.remove('hidden');
 
-  // ========== V6.0: 判斷是否包牌模式 ==========
-  const isPack = mode.startsWith('pack');
-  const packMode = isPack ? (mode === 'pack1' ? 'pack_1' : 'pack_2') : null;
-  const isRandom = mode === 'random';
+        // 設定參數
+        const isRandom = (mode === 'random');
+        const isPack   = (mode.startsWith('pack')); // pack_1 或 pack_2 都是包牌
+        const school   = this.state.currentSchool;
 
-  // ========== V6.0: 包牌模式（只支援 pattern 學派） ==========
-  if (isPack && school === 'pattern') {
-    const tickets = algoPattern({
-      data,
-      gameDef,
-      subModeId: this.state.currentSubMode,
-      mode: 'strict',  // 包牌模式用 strict
-      packMode: packMode,
-      targetCount: 5   // 可調整（5-10注）
-    });
+        // [Fix] 針對關聯學派(Pattern) V6.1 的直通車邏輯
+        if (school === 'pattern' && isPack) {
+            const params = {
+                data,
+                gameDef,
+                subModeId: this.state.currentSubMode,
+                excludeNumbers: new Set(),
+                mode: 'strict', // Pattern學派內部邏輯使用
+                packMode: mode, // 'pack_1' 或 'pack_2'
+                targetCount: 5  // 目標注數
+            };
+            
+            // 直接呼叫 Pattern V6.1，它會回傳陣列
+            const results = algoPattern(params);
+            
+            // 直接渲染陣列結果，不進入 SmartWheel
+            if (Array.isArray(results)) {
+                results.forEach((res, idx) => {
+                    this.renderRow(res, idx + 1, `<span class="text-purple-600 font-bold">🎯 關聯包牌 ${idx + 1}</span>`);
+                });
+            } else {
+                // 防呆：如果回傳單注（發生錯誤時）
+                this.renderRow(results, 1);
+            }
+            return; // 結束執行
+        }
 
-    if (Array.isArray(tickets) && tickets.length > 0) {
-      tickets.forEach((ticket, idx) => {
-        const rankLabel = `<span class="text-purple-600 font-bold">${idx + 1}</span>`;
-        this.renderRow(ticket, idx + 1, rankLabel);
-      });
-    } else {
-      container.innerHTML = '<div class="p-4 text-center text-stone-400">❌ 包牌失敗，請檢查資料品質</div>';
-    }
-    return;
-  }
+        // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
+        
+        const count = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
+        const excludeSet = new Set();
+        const packPool = [];
 
-  // ========== V6.0: 單注模式（所有學派） ==========
-  const count = 5;  // 產生5組
-  const excludeSet = new Set();
+        for (let i = 0; i < count; i++) {
+            const params = { 
+                data, 
+                gameDef, 
+                subModeId: this.state.currentSubMode, 
+                excludeNumbers: excludeSet,
+                random: isRandom, // 相容舊參數
+                mode: isRandom ? 'random' : 'strict', // 相容新參數
+                setIndex: i 
+            };
+            
+            let result = null;
 
-  for (let i = 0; i < count; i++) {
-    const params = {
-      data,
-      gameDef,
-      subModeId: this.state.currentSubMode,
-      excludeNumbers: excludeSet,
-      mode: isRandom ? 'random' : 'strict',  // V6.0: 使用 mode 參數
-      setIndex: i
-    };
+            switch (school) {
+                case 'balance': result = algoBalance(params); break;
+                case 'stat':    result = algoStat(params); break;
+                case 'pattern': result = algoPattern(params); break;
+                case 'ai':      result = algoAI(params); break;
+                case 'wuxing':  result = this.algoWuxing(params); break;
+            }
 
-    let result = null;
-    switch (school) {
-      case 'balance':
-        result = algoBalance(params);
-        break;
-      case 'stat':
-        result = algoStat(params);
-        break;
-      case 'pattern':
-        result = algoPattern(params);
-        break;
-      case 'ai':
-        result = algoAI(params);
-        break;
-      case 'wuxing':
-        result = this.algoWuxing(params);
-        break;
-    }
+            if (result && result.numbers) {
+                if (!monteCarloSim(result.numbers, gameDef)) { /* fallback */ }
 
-    if (result) {
-      // 排除已選號碼
-      result.numbers.forEach(n => excludeSet.add(n.val));
+                // 更新排除名單
+                result.numbers.forEach(n => {
+                    excludeSet.add(n.val);
+                    if (isPack) packPool.push(n.val); 
+                });
 
-      // 顯示單注
-      let rankLabel = `SET ${i + 1}`;
-      if (isRandom) {
-        rankLabel = `<span class="text-amber-600">${i + 1}</span>`;
-      } else if (i === 0) {
-        rankLabel = `<span class="text-yellow-600">★</span>`;
-      } else if (i === 1) {
-        rankLabel = `<span class="text-stone-500">☆</span>`;
-      } else if (i === 2) {
-        rankLabel = `<span class="text-amber-700">✦</span>`;
-      } else {
-        rankLabel = `<span class="text-stone-400">✧</span>`;
-      }
+                // 如果不是包牌模式，直接渲染結果
+                if (!isPack) {
+                    let rankLabel = `SET ${i + 1}`;
+                    if (isRandom) {
+                        rankLabel = `<span class="text-amber-600">🎲 隨機推薦 ${i+1}</span>`;
+                    } else {
+                        if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
+                        else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
+                        else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
+                        else rankLabel = `<span class="text-stone-400">🛡️ 補位組合</span>`;
+                    }
+                    this.renderRow(result, i + 1, rankLabel);
+                }
+                
+                // 包牌模式：若池子夠了就提早結束 (12個夠用了)
+                if (isPack && packPool.length >= 12) break;
+            }
+        }
 
-      this.renderRow(result, i + 1, rankLabel);
-    }
-  }
-}
+        // 包牌模式的後續處理 (其他學派使用 SmartWheel)
+        if (isPack) {
+            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
+            this.algoSmartWheel(data, gameDef, finalPool, mode);
+        }
+    },
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1000,9 +1008,11 @@ runPrediction() {
             groupReason: `💡 流年格局：[${dominant}] 主導。`
         };
     },
+
+    // [Fix] App 內部的 SmartWheel 包裝器 (避免命名衝突)
     algoSmartWheel(data, gameDef, pool, packMode) {
-        // [修改] 傳入 packMode ('pack_1' or 'pack_2')
-        const results = algoSmartWheel(data, gameDef, pool, packMode);
+        // 使用重新命名的 imported function: generateSmartWheel
+        const results = generateSmartWheel(data, gameDef, pool, packMode);
         
         if (!results || results.length === 0) {
             document.getElementById('prediction-output').innerHTML = 
@@ -1021,6 +1031,7 @@ runPrediction() {
             )
         );
     },
+
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
         const colors = {
@@ -1032,7 +1043,6 @@ runPrediction() {
         };
         const colorClass = colors[this.state.currentSchool] || 'bg-stone-200';
         
-        // [修改] 如果有傳入 label 就使用 label，否則預設 SET {index}
         const displayLabel = label ? label : `SET ${index}`;
 
         let html = `
@@ -1116,10 +1126,3 @@ runPrediction() {
 
 window.app = App;
 window.onload = () => App.init();
-
-
-
-
-
-
-
