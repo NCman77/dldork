@@ -730,10 +730,10 @@ const App = {
             const nextDate = this.getNextDrawDate(gameDef.drawDays);
 
             // 只有大樂透和威力彩顯示獎金，其他顯示一般資訊
-            if (gameDef.type === 'lotto' || gameDef.type === 'power') {
+if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
                 container.innerHTML = `
                     <div class="flex items-center gap-3 text-xs md:text-sm">
-                        ${gameName !== '今彩539' ? `
+                        ${['大樂透', '威力彩'].includes(gameName) ? `
                         <div class="px-3 py-1 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-200 font-bold flex items-center gap-1 shadow-sm">
                             <span>💰</span> 累積: ${jackpotText}
                         </div>
@@ -1098,4 +1098,5 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
