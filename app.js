@@ -948,20 +948,6 @@ runPrediction() {
     }
   }
 }
-                
-                // 包牌模式：若池子夠了就提早結束 (12個夠用了)
-                if (isPack && packPool.length >= 12) break;
-            }
-        }
-
-        // 包牌模式的後續處理
-        if (isPack) {
-            // 取前 12 個不重複號碼作為包牌池 (大樂透/威力彩需要較多)
-            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
-            // [修改] 將 mode (pack_1/pack_2) 傳遞給包牌模組
-            this.algoSmartWheel(data, gameDef, finalPool, mode);
-        }
-    },
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1130,6 +1116,7 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
