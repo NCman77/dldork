@@ -850,7 +850,7 @@ if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
             .classList.toggle('hidden', school !== 'wuxing');
     },
 
-// ================= 學派入口：runPrediction =================
+// ================= 學派入口：runPrediction =================\n runPrediction() {
 runPrediction() {
   const gameName = this.state.currentGame;
   const gameDef = GAME_CONFIG.GAMES[gameName];
@@ -1116,6 +1116,7 @@ runPrediction() {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
