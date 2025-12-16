@@ -851,71 +851,103 @@ if (['lotto', 'power', 'digit'].includes(gameDef.type)) {
     },
 
 // ================= 學派入口：runPrediction =================
-    runPrediction() {
-        const gameName = this.state.currentGame;
-        const gameDef  = GAME_CONFIG.GAMES[gameName];
-        let data       = this.state.rawData[gameName] || [];
-        if (!gameDef) return;
+runPrediction() {
+  const gameName = this.state.currentGame;
+  const gameDef = GAME_CONFIG.GAMES[gameName];
+  let data = this.state.rawData[gameName];
+  if (!gameDef) return;
 
-        const modeInput = document.querySelector('input[name="count"]:checked');
-        const mode = modeInput ? modeInput.value : 'strict'; // strict, random, pack_1, pack_2
+  const modeInput = document.querySelector('input[name="count"]:checked');
+  const mode = modeInput ? modeInput.value : 'strict';
+  
+  const container = document.getElementById('prediction-output');
+  container.innerHTML = '';
+  document.getElementById('result-area').classList.remove('hidden');
 
-        const container = document.getElementById('prediction-output');
-        container.innerHTML = '';
-        document.getElementById('result-area').classList.remove('hidden');
+  const school = this.state.currentSchool;
 
-        // 設定參數
-        const isRandom = (mode === 'random');
-        const isPack   = (mode.startsWith('pack')); // pack_1 或 pack_2 都是包牌
-        const count    = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
-        const school   = this.state.currentSchool;
-        
-        // 全域排除集合 & 包牌專用暫存池
-        const excludeSet = new Set();
-        const packPool = [];
+  // ========== V6.0: 判斷是否包牌模式 ==========
+  const isPack = mode.startsWith('pack');
+  const packMode = isPack ? (mode === 'pack1' ? 'pack_1' : 'pack_2') : null;
+  const isRandom = mode === 'random';
 
-        for (let i = 0; i < count; i++) {
-            const params = { 
-                data, 
-                gameDef, 
-                subModeId: this.state.currentSubMode, 
-                excludeNumbers: excludeSet,
-                random: isRandom,
-                setIndex: i 
-            };
-            
-            let result = null;
+  // ========== V6.0: 包牌模式（只支援 pattern 學派） ==========
+  if (isPack && school === 'pattern') {
+    const tickets = algoPattern({
+      data,
+      gameDef,
+      subModeId: this.state.currentSubMode,
+      mode: 'strict',  // 包牌模式用 strict
+      packMode: packMode,
+      targetCount: 5   // 可調整（5-10注）
+    });
 
-            switch (school) {
-                case 'balance': result = algoBalance(params); break;
-                case 'stat':    result = algoStat(params); break;
-                case 'pattern': result = algoPattern(params); break;
-                case 'ai':      result = algoAI(params); break;
-                case 'wuxing':  result = this.algoWuxing(params); break;
-            }
+    if (Array.isArray(tickets) && tickets.length > 0) {
+      tickets.forEach((ticket, idx) => {
+        const rankLabel = `<span class="text-purple-600 font-bold">${idx + 1}</span>`;
+        this.renderRow(ticket, idx + 1, rankLabel);
+      });
+    } else {
+      container.innerHTML = '<div class="p-4 text-center text-stone-400">❌ 包牌失敗，請檢查資料品質</div>';
+    }
+    return;
+  }
 
-            if (result) {
-                if (!monteCarloSim(result.numbers, gameDef)) { /* fallback */ }
+  // ========== V6.0: 單注模式（所有學派） ==========
+  const count = 5;  // 產生5組
+  const excludeSet = new Set();
 
-                // 更新排除名單
-                result.numbers.forEach(n => {
-                    excludeSet.add(n.val);
-                    if (isPack) packPool.push(n.val); 
-                });
+  for (let i = 0; i < count; i++) {
+    const params = {
+      data,
+      gameDef,
+      subModeId: this.state.currentSubMode,
+      excludeNumbers: excludeSet,
+      mode: isRandom ? 'random' : 'strict',  // V6.0: 使用 mode 參數
+      setIndex: i
+    };
 
-                // 如果不是包牌模式，直接渲染結果
-                if (!isPack) {
-                    let rankLabel = `SET ${i + 1}`;
-                    if (isRandom) {
-                        rankLabel = `<span class="text-amber-600">🎲 隨機推薦 ${i+1}</span>`;
-                    } else {
-                        if (i === 0) rankLabel = `<span class="text-yellow-600">👑 系統首選</span>`;
-                        else if (i === 1) rankLabel = `<span class="text-stone-500">🥈 次佳組合</span>`;
-                        else if (i === 2) rankLabel = `<span class="text-amber-700">🥉 潛力組合</span>`;
-                        else rankLabel = `<span class="text-stone-400">🛡️ 補位組合</span>`;
-                    }
-                    this.renderRow(result, i + 1, rankLabel);
-                }
+    let result = null;
+    switch (school) {
+      case 'balance':
+        result = algoBalance(params);
+        break;
+      case 'stat':
+        result = algoStat(params);
+        break;
+      case 'pattern':
+        result = algoPattern(params);
+        break;
+      case 'ai':
+        result = algoAI(params);
+        break;
+      case 'wuxing':
+        result = this.algoWuxing(params);
+        break;
+    }
+
+    if (result) {
+      // 排除已選號碼
+      result.numbers.forEach(n => excludeSet.add(n.val));
+
+      // 顯示單注
+      let rankLabel = `SET ${i + 1}`;
+      if (isRandom) {
+        rankLabel = `<span class="text-amber-600">${i + 1}</span>`;
+      } else if (i === 0) {
+        rankLabel = `<span class="text-yellow-600">★</span>`;
+      } else if (i === 1) {
+        rankLabel = `<span class="text-stone-500">☆</span>`;
+      } else if (i === 2) {
+        rankLabel = `<span class="text-amber-700">✦</span>`;
+      } else {
+        rankLabel = `<span class="text-stone-400">✧</span>`;
+      }
+
+      this.renderRow(result, i + 1, rankLabel);
+    }
+  }
+}
                 
                 // 包牌模式：若池子夠了就提早結束 (12個夠用了)
                 if (isPack && packPool.length >= 12) break;
@@ -1098,5 +1130,6 @@ algoSmartWheel(data, gameDef, pool, packMode) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
