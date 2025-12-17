@@ -236,62 +236,46 @@ function pattern_validateLotto(data, gameDef) {
   const cleaned = [];
   let rejected = 0;
 
-  // 以 gameDef 為準（539: count=5, range=39；大樂透: count=6, range=49）
-  const mainCount = (typeof gameDef.count === 'number' && gameDef.count > 0) ? gameDef.count : 6;
-  const range = (typeof gameDef.range === 'number' && gameDef.range > 0) ? gameDef.range : 49;
-
-  // 特別號允許條件：
-  // 1) 明確宣告 gameDef.special 為 true
-  // 2) 或維持既有相容：主號為 6 的 lotto（通常代表大樂透類）允許第 7 顆特別號
-  const allowSpecial = !!gameDef.special || mainCount === 6;
-
   for (const d of data) {
     if (!d || !Array.isArray(d.numbers)) {
       rejected++;
       continue;
     }
 
-    const len = d.numbers.length;
-
-    // 長度必須是 mainCount（例如539=5）或（允許特別號時）mainCount+1
-    const isValidLen = (len === mainCount) || (allowSpecial && len === mainCount + 1);
-    if (!isValidLen) {
+    if (d.numbers.length < 6 || d.numbers.length > 7) {
       rejected++;
       continue;
     }
 
-    const mainNumbers = d.numbers.slice(0, mainCount);
-    const specialNumber = (len === mainCount + 1) ? d.numbers[mainCount] : null;
+    const mainNumbers = d.numbers.slice(0, 6);
+    const specialNumber = d.numbers.length === 7 ? d.numbers[6] : null;
 
-    // 主號：型別 + 範圍
-    const hasInvalidMain = mainNumbers.some(n => typeof n !== 'number' || n < 1 || n > range);
-    if (hasInvalidMain) {
+    const hasInvalidNum = mainNumbers.some(n => typeof n !== 'number' || n < 1 || n > 49);
+    if (hasInvalidNum) {
       rejected++;
       continue;
     }
 
-    // 主號：不得重複
-    if (new Set(mainNumbers).size !== mainCount) {
+    if (new Set(mainNumbers).size !== 6) {
       rejected++;
       continue;
     }
 
-    // 特別號（若存在）：型別 + 範圍
     if (specialNumber !== null) {
-      if (typeof specialNumber !== 'number' || specialNumber < 1 || specialNumber > range) {
-        rejected++;
-        continue;
-      }
-      // V6.1: 修復8 - 檢查特別號不得與主號重複
-      if (mainNumbers.includes(specialNumber)) {
+      if (typeof specialNumber !== 'number' || specialNumber < 1 || specialNumber > 49) {
         rejected++;
         continue;
       }
     }
 
-    // 清洗後：numbers 一律只保留主號（避免後續把特別號當主號運算）
-    cleaned.push({
-      ...d,
+    // V6.1: 修復8 - 檢查特別號不得與主號重複
+    if (specialNumber !== null && mainNumbers.includes(specialNumber)) {
+      rejected++;
+      continue;
+    }
+
+    cleaned.push({ 
+      ...d, 
       numbers: mainNumbers,
       mainNumbers: mainNumbers,
       specialNumber: specialNumber
@@ -300,7 +284,6 @@ function pattern_validateLotto(data, gameDef) {
 
   return pattern_finalizeValidation(cleaned, rejected, gameDef, data.length);
 }
-
 
 function pattern_validateToday(data, gameDef) {
   const cleaned = [];
@@ -692,120 +675,57 @@ function pattern_buildZone2Pool(data, zone2Range) {
 function pattern_packDigit(data, gameDef, packMode, targetCount, mode) {
   const { count } = gameDef;
   const tickets = [];
-  const want = Math.max(1, targetCount);
 
-  // 建立位置統計候選池：回傳格式為 [{num, score}, ...]
-  // score = 次數（近 50 期），越高越熱門
-  const buildPools = (topN) => pattern_buildCandidatePoolDigit(data, gameDef, topN);
-
-  // 計算一注的分數（用 log 平滑，避免某位置差距過度放大）
-  const scoreTicket = (combo, pools) => {
-    let s = 0;
-    for (let pos = 0; pos < count; pos++) {
-      const hit = pools[pos].find(x => x.num === combo[pos]);
-      const c = (hit ? hit.score : 0) + 1; // +1 smoothing
-      s += Math.log(c);
-    }
-    return s;
-  };
-
-  // 兩票相似度：相同位置數量（越高越像）
-  const samePosCount = (a, b) => {
-    let same = 0;
-    for (let i = 0; i < a.length; i++) if (a[i] === b[i]) same++;
-    return same;
-  };
-
-  // =========================
-  // pack_1：強勢包牌（Top2 池）
-  // - 每位置使用 Top2（Top1+Top2）
-  // - 排除「全 Top1」那注（避免與嚴選重疊）
-  // - 依分數挑出前 want 注，並做基本去相似（先嚴後鬆）
-  // =========================
   if (packMode === 'pack_1') {
-    const pools = buildPools(2);
-    const combos = pattern_cartesianProduct(pools.map(p => p.map(c => c.num)));
+    const K = Math.max(2, Math.ceil(Math.pow(targetCount, 1 / count)));
+    const positionPools = pattern_buildCandidatePoolDigit(data, gameDef, K);
 
-    const top1Combo = pools.map(p => p[0]?.num ?? 0);
-
-    // 排除全 Top1（嚴選首選）
-    const filtered = combos.filter(c => {
-      for (let i = 0; i < count; i++) {
-        if (c[i] !== top1Combo[i]) return true;
-      }
-      return false;
-    });
-
-    // 按準度分數排序（高→低）
-    const ranked = filtered
-      .map(c => ({ combo: c, s: scoreTicket(c, pools) }))
-      .sort((a, b) => b.s - a.s);
-
-    const picked = [];
-
-    // 第一輪：偏多樣性（至少差 2 個位置），不夠再放寬
-    const tryPickWithMinDiff = (minDiff) => {
-      for (const item of ranked) {
-        if (picked.length >= want) break;
-        const c = item.combo;
-
-        // 不重複
-        if (picked.some(p => p.every((v, i) => v === c[i]))) continue;
-
-        // 多樣性：與已選票至少差 minDiff 個位置
-        const ok = picked.every(p => (count - samePosCount(p, c)) >= minDiff);
-        if (!ok) continue;
-
-        picked.push(c);
-      }
-    };
-
-    // 先嚴後鬆：盡量不讓前幾注長得太像，但也不犧牲準度填不滿
-    tryPickWithMinDiff(2);
-    if (picked.length < want) tryPickWithMinDiff(1);
-    if (picked.length < want) {
-      // 最後保底：直接補高分未選者
-      for (const item of ranked) {
-        if (picked.length >= want) break;
-        const c = item.combo;
-        if (picked.some(p => p.every((v, i) => v === c[i]))) continue;
-        picked.push(c);
-      }
-    }
-
-    picked.slice(0, want).forEach((combo, idx) => {
+    const combinations = pattern_cartesianProduct(positionPools.map(p => p.map(c => c.num)));
+    
+    combinations.slice(0, targetCount).forEach((combo, idx) => {
       tickets.push({
         numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
-        groupReason: `強勢包牌 ${idx + 1}/${want} - Top2池（排除嚴選首選）`
+        groupReason: `標準包牌 ${idx + 1}/${Math.min(targetCount, combinations.length)} - 笛卡兒積組合`
       });
     });
 
-    log(`數字型強勢包牌完成: ${tickets.length}注`);
-    return tickets;
+  } else {
+    const positionPools = pattern_buildCandidatePoolDigit(data, gameDef, 7);
+
+    for (let k = 0; k < targetCount; k++) {
+      const combo = positionPools.map((pool, pos) => {
+        const idx = (k + pos) % pool.length;
+        return pool[idx].num;
+      });
+
+      tickets.push({
+        numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
+        groupReason: `彈性包牌 ${k + 1}/${targetCount} - 位置輪轉組合`
+      });
+    }
   }
 
-  // =========================
-  // pack_2：彈性包牌（Top3 / Top4 / Top5 ...）
-  // - 每一注使用同一順位層級：第1注全 Top3、第2注全 Top4...
-  // - 用 Top10 池以確保 Top3~Top7 一定存在
-  // =========================
-  const pools = buildPools(10);
-
-  for (let k = 0; k < want; k++) {
-    const rankIdx = Math.min(2 + k, 9); // 0=Top1, 1=Top2, 2=Top3...
-    const combo = pools.map((pool) => {
-      const pick = pool[rankIdx] || pool[pool.length - 1];
-      return pick.num;
-    });
-
-    tickets.push({
-      numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
-      groupReason: `彈性包牌 ${k + 1}/${want} - 逐級順位 Top${rankIdx + 1}`
-    });
-  }
-
-  log(`數字型彈性包牌完成: ${tickets.length}注`);
+  log(`數字型包牌完成: ${tickets.length}注`);
   return tickets;
+}
+
+function pattern_cartesianProduct(arrays) {
+  if (arrays.length === 0) return [];
+  if (arrays.length === 1) return arrays[0].map(x => [x]);
+
+  const result = [];
+  const helper = (current, remaining) => {
+    if (remaining.length === 0) {
+      result.push([...current]);
+      return;
+    }
+    for (const item of remaining[0]) {
+      helper([...current, item], remaining.slice(1));
+    }
+  };
+
+  helper([], arrays);
+  return result;
 }
 
 // V6.1: 修復10 - 樂透型包牌支援 excludeNumbers
@@ -1033,17 +953,12 @@ function pattern_handleDigitSingle(data, gameDef, strategy, mode, setIndex) {
   });
 
   const result = [];
-
-  // ✅ 嚴選(strict) = Top1（不受 setIndex 影響）
-  // ✅ 隨機(random) 仍維持原本的「Top5 內加噪」機制
-  const pickIndexRandomBase = strategy === 'conservative' ? 1 : 0;
-
+  const pickIndex = strategy === 'conservative' ? 1 : 0;
   for (let i = 0; i < count; i++) {
-    const actualIdx = isRandom ? pickIndexRandomBase : 0; // strict 固定 Top1
+    const actualIdx = isRandom ? pickIndex : ((pickIndex + (setIndex % 5)) % 5);
     const pick = rankedPos[i][actualIdx] || rankedPos[i][0];
     result.push({ val: pick.n, tag: `Pos${i + 1}` });
   }
-
 
   const reasonPrefix = isRandom ? '隨機數字' : '嚴選數字';
   return {
@@ -1274,7 +1189,4 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
-
-
-
 
