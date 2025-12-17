@@ -383,42 +383,43 @@ function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
 function pattern_sortData(data) {
   if (data.length === 0) return;
 
-  let getTimeValue = null;
   const sample = data[0];
+  let getSortValue = null;
 
-  // 優先策略1：使用 period（今彩539 的 period 是純數字且嚴格遞增，最可靠）
-  if (sample.period && /^\d+$/.test(String(sample.period))) {
-    getTimeValue = (d) => {
-      const p = String(d.period || '0').replace(/\D/g, '');
-      return parseInt(p, 10) || 0;
+  // 策略1：優先用 period 排序（今彩539 完美適用，期數越大越新）
+  if (sample.period !== undefined) {
+    getSortValue = (item) => {
+      const p = String(item.period || '').replace(/\D/g, '');
+      const num = parseInt(p, 10);
+      return isNaN(num) ? 0 : num;
     };
   }
-  // 策略2：使用 date 字串轉時間
-  else if (sample.date) {
-    getTimeValue = (d) => {
-      const dateVal = d.date instanceof Date ? d.date.getTime() : new Date(d.date).getTime();
-      return isNaN(dateVal) ? 0 : dateVal;
+  // 策略2：用 date 轉時間戳
+  else if (sample.date !== undefined) {
+    getSortValue = (item) => {
+      const dateObj = item.date instanceof Date ? item.date : new Date(item.date);
+      const time = dateObj.getTime();
+      return isNaN(time) ? 0 : time;
     };
   }
-  // 策略3：其他欄位（lotteryDate, drawNumber 等）
+  // 策略3：其他常見欄位
   else if (sample.lotteryDate) {
-    getTimeValue = (d) => new Date(d.lotteryDate).getTime();
+    getSortValue = (item) => new Date(item.lotteryDate).getTime();
   }
   else if (sample.drawNumber) {
-    getTimeValue = (d) => Number(d.drawNumber);
+    getSortValue = (item) => Number(item.drawNumber || 0);
   }
-  // 最終後備：用陣列反向索引（保證不丟資料）
+  // 最終保底：維持原順序（用負索引，最新在前面）
   else {
-    getTimeValue = (d) => -data.indexOf(d);
+    getSortValue = (item, index) => -index;
   }
 
-  // 安全賦值：絕不刪除任何資料
-  data.forEach((item, idx) => {
-    const val = getTimeValue(item);
-    item[SORT_KEY] = isNaN(val) ? -idx : val;
+  // 賦值並排序，絕不刪除任何資料
+  data.forEach((item, index) => {
+    const value = getSortValue(item, index);
+    item[SORT_KEY] = isNaN(value) ? -index : value;
   });
 
-  // 排序：由新到舊
   data.sort((a, b) => b[SORT_KEY] - a[SORT_KEY]);
 }
 
@@ -1189,6 +1190,7 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
 
