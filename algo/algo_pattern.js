@@ -693,36 +693,95 @@ function pattern_packDigit(data, gameDef, packMode, targetCount, mode) {
   const { count } = gameDef;
   const tickets = [];
 
-  if (packMode === 'pack_1') {
-    const K = Math.max(2, Math.ceil(Math.pow(targetCount, 1 / count)));
-    const positionPools = pattern_buildCandidatePoolDigit(data, gameDef, K);
+  const want = Math.max(1, Number(targetCount) || 5);
 
-    const combinations = pattern_cartesianProduct(positionPools.map(p => p.map(c => c.num)));
-    
-    combinations.slice(0, targetCount).forEach((combo, idx) => {
+  // ===== pack_1：強勢包牌 = 嚴選Top1 的「全排列」(含重複時去重後的全排列) =====
+  if (packMode === 'pack_1') {
+    // 嚴選 Top1：每個位置各取 Top1（等同你現有嚴選 SET1 的核心）
+    const poolsTop1 = pattern_buildCandidatePoolDigit(data, gameDef, 1);
+    const base = poolsTop1.map(p => (p && p[0] ? p[0].num : 0));
+
+    // 產生不重複排列（例：1-1-2 => 3 組）
+    const perms = pattern_uniquePermutations(base);
+
+    perms.forEach((combo, idx) => {
       tickets.push({
         numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
-        groupReason: `標準包牌 ${idx + 1}/${Math.min(targetCount, combinations.length)} - 笛卡兒積組合`
+        groupReason: `強勢包牌 ${idx + 1}/${perms.length} - 嚴選Top1全排列`
       });
     });
 
-  } else {
-    const positionPools = pattern_buildCandidatePoolDigit(data, gameDef, 7);
-
-    for (let k = 0; k < targetCount; k++) {
-      const combo = positionPools.map((pool, pos) => {
-        const idx = (k + pos) % pool.length;
-        return pool[idx].num;
-      });
-
-      tickets.push({
-        numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
-        groupReason: `彈性包牌 ${k + 1}/${targetCount} - 位置輪轉組合`
-      });
-    }
+    log(`數字型強勢包牌完成: ${tickets.length}注 (全排列去重)`);
+    return tickets;
   }
 
-  log(`數字型包牌完成: ${tickets.length}注`);
+  // ===== pack_2：彈性包牌 = 笛卡兒積高分挑 5 注（確定性 + 高準度 + 分散） =====
+  // 候選池大小：Top7 在 4星彩最多 7^4=2401 組，性能很安全
+  const TOP_N = 7;
+
+  const pools = pattern_buildCandidatePoolDigit(data, gameDef, TOP_N);
+  const scoreMaps = pattern_buildDigitPosScoreMap(pools);
+
+  // 產生笛卡兒積所有組合（這裡依賴你檔案原本就有的 pattern_cartesianProduct）
+  const combos = pattern_cartesianProduct(pools.map(p => p.map(c => c.num)));
+
+  // 1) 建立「嚴選 Top5」簽章：避免 pack_2 撞到你現有嚴選 Top5（保持模式差異）
+  const strictPoolsTop5 = pattern_buildCandidatePoolDigit(data, gameDef, 5);
+  const banned = new Set();
+  for (let r = 0; r < 5; r++) {
+    const strictCombo = strictPoolsTop5.map(pool => (pool[r] || pool[0]).num);
+    banned.add(pattern_digitComboSignature(strictCombo));
+  }
+
+  // 2) 也避免撞到 pack_1 的全排列（讓 pack_1 / pack_2 更分明）
+  const poolsTop1 = pattern_buildCandidatePoolDigit(data, gameDef, 1);
+  const baseTop1 = poolsTop1.map(p => (p && p[0] ? p[0].num : 0));
+  pattern_uniquePermutations(baseTop1).forEach(p => banned.add(pattern_digitComboSignature(p)));
+
+  // 3) 高分排序（確定性，不用亂數）
+  const ranked = combos
+    .map(combo => ({
+      combo,
+      score: pattern_scoreDigitCombo(combo, scoreMaps)
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  // 4) 依序挑出 want 注，加入「分散」約束（先嚴後鬆）
+  const picked = [];
+  const pickedSig = new Set();
+
+  const pickWithMinDiff = (minDiff) => {
+    for (const item of ranked) {
+      if (picked.length >= want) break;
+      const combo = item.combo;
+      const sig = pattern_digitComboSignature(combo);
+
+      if (banned.has(sig)) continue;
+      if (pickedSig.has(sig)) continue;
+
+      // 分散：與已選任一注至少差 minDiff 個位置
+      if (minDiff > 0) {
+        const ok = picked.every(p => pattern_posDiff(p, combo) >= minDiff);
+        if (!ok) continue;
+      }
+
+      picked.push(combo);
+      pickedSig.add(sig);
+    }
+  };
+
+  pickWithMinDiff(2);
+  if (picked.length < want) pickWithMinDiff(1);
+  if (picked.length < want) pickWithMinDiff(0);
+
+  picked.slice(0, want).forEach((combo, idx) => {
+    tickets.push({
+      numbers: combo.map((num, pos) => ({ val: num, tag: `Pos${pos + 1}` })),
+      groupReason: `彈性包牌 ${idx + 1}/${want} - 高分笛卡兒積(Top${TOP_N})`
+    });
+  });
+
+  log(`數字型彈性包牌完成: ${tickets.length}注 (確定性高分挑選)`);
   return tickets;
 }
 
@@ -743,6 +802,69 @@ function pattern_cartesianProduct(arrays) {
 
   helper([], arrays);
   return result;
+}
+// ===== Digit helpers (pack_1 / pack_2 專用) =====
+
+// 產生「不重複排列」：例如 [1,1,2] => 3 組
+function pattern_uniquePermutations(nums) {
+  const counts = new Map();
+  nums.forEach(n => counts.set(n, (counts.get(n) || 0) + 1));
+
+  const uniqueVals = Array.from(counts.keys());
+  const res = [];
+  const path = [];
+
+  const dfs = () => {
+    if (path.length === nums.length) {
+      res.push([...path]);
+      return;
+    }
+    for (const v of uniqueVals) {
+      const c = counts.get(v) || 0;
+      if (c <= 0) continue;
+      counts.set(v, c - 1);
+      path.push(v);
+      dfs();
+      path.pop();
+      counts.set(v, c);
+    }
+  };
+
+  dfs();
+  return res;
+}
+
+// combo 簽章（用於去重/排除）
+function pattern_digitComboSignature(combo) {
+  return combo.join('-');
+}
+
+// 計算兩組在「位置上」差幾位（差越多越不像）
+function pattern_posDiff(a, b) {
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) diff++;
+  }
+  return diff;
+}
+
+// 建立每個位置 num->score 的查表，供快速評分
+function pattern_buildDigitPosScoreMap(pools) {
+  return pools.map(pool => {
+    const m = new Map();
+    pool.forEach(item => m.set(item.num, item.score));
+    return m;
+  });
+}
+
+// 組合評分：用 log 平滑，確保穩定且可加總（確定性）
+function pattern_scoreDigitCombo(combo, scoreMaps) {
+  let s = 0;
+  for (let pos = 0; pos < combo.length; pos++) {
+    const c = (scoreMaps[pos].get(combo[pos]) ?? 0) + 1; // +1 smoothing
+    s += Math.log(c);
+  }
+  return s;
 }
 
 // V6.1: 修復10 - 樂透型包牌支援 excludeNumbers
@@ -1206,5 +1328,6 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
