@@ -382,43 +382,37 @@ function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
 // V6.1: 修復7 - 排序欄位防呆
 function pattern_sortData(data) {
   if (data.length === 0) return;
-
+  
+  let getTimeValue;
   const sample = data[0];
-  let getTimeValue = null;
-
-  if (sample.hasOwnProperty('date')) {
-    getTimeValue = (d) => d.date instanceof Date ? d.date.getTime() : new Date(d.date).getTime();
-  } else if (sample.hasOwnProperty('lotteryDate')) {
-    getTimeValue = (d) => new Date(d.lotteryDate).getTime();
-  } else if (sample.hasOwnProperty('period')) {
-    getTimeValue = (d) => typeof d.period === 'string' ? parseFloat(d.period) : Number(d.period);
-  } else if (sample.hasOwnProperty('drawNumber')) {
-    getTimeValue = (d) => typeof d.drawNumber === 'string' ? parseInt(d.drawNumber) : Number(d.drawNumber);
-  } else {
+  
+  // 優先嘗試 period 轉數字（今彩539 的 period 如 114000303 很大，越新越大）
+  if (sample.hasOwnProperty('period')) {
+    getTimeValue = (d) => {
+      const p = String(d.period || '');
+      const num = parseInt(p.replace(/\D/g, ''), 10); // 提取數字部分
+      return isNaN(num) ? 0 : num;
+    };
+  }
+  // 再嘗試 date
+  else if (sample.hasOwnProperty('date')) {
+    getTimeValue = (d) => {
+      const dateVal = d.date instanceof Date ? d.date : new Date(d.date);
+      return isNaN(dateVal.getTime()) ? 0 : dateVal.getTime();
+    };
+  }
+  // 後備：用索引
+  else {
     getTimeValue = () => 0;
   }
 
-  try {
-    // V6.1: 排序欄位缺失時標記為 null，後續會被過濾
-    for (const item of data) {
-      const val = getTimeValue(item);
-      item[SORT_KEY] = isNaN(val) || val === 0 ? null : val;
-    }
-    
-    // V6.1: 過濾掉無效時序的資料
-    const validData = data.filter(item => item[SORT_KEY] !== null);
-    if (validData.length < data.length * 0.9) {
-      // 如果超過10%資料無效，使用索引作為後備
-      data.forEach((item, idx) => item[SORT_KEY] = -idx);
-    } else {
-      // 移除無效資料
-      data.length = 0;
-      data.push(...validData);
-    }
-  } catch (e) {
-    data.forEach((item, idx) => item[SORT_KEY] = -idx);
-  }
+  // 直接賦值，不清空陣列
+  data.forEach(item => {
+    const val = getTimeValue(item);
+    item[SORT_KEY] = isNaN(val) ? -data.indexOf(item) : val; // 無效用反向索引
+  });
 
+  // 排序：新到舊
   data.sort((a, b) => b[SORT_KEY] - a[SORT_KEY]);
 }
 
@@ -1189,4 +1183,5 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
