@@ -379,40 +379,46 @@ function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
   };
 }
 
-// V6.1: 修復7 - 排序欄位防呆
+// V6.1 修復7 - 改良版排序防呆（專治今彩539 清空問題）
 function pattern_sortData(data) {
   if (data.length === 0) return;
-  
-  let getTimeValue;
+
+  let getTimeValue = null;
   const sample = data[0];
-  
-  // 優先嘗試 period 轉數字（今彩539 的 period 如 114000303 很大，越新越大）
-  if (sample.hasOwnProperty('period')) {
+
+  // 優先策略1：使用 period（今彩539 的 period 是純數字且嚴格遞增，最可靠）
+  if (sample.period && /^\d+$/.test(String(sample.period))) {
     getTimeValue = (d) => {
-      const p = String(d.period || '');
-      const num = parseInt(p.replace(/\D/g, ''), 10); // 提取數字部分
-      return isNaN(num) ? 0 : num;
+      const p = String(d.period || '0').replace(/\D/g, '');
+      return parseInt(p, 10) || 0;
     };
   }
-  // 再嘗試 date
-  else if (sample.hasOwnProperty('date')) {
+  // 策略2：使用 date 字串轉時間
+  else if (sample.date) {
     getTimeValue = (d) => {
-      const dateVal = d.date instanceof Date ? d.date : new Date(d.date);
-      return isNaN(dateVal.getTime()) ? 0 : dateVal.getTime();
+      const dateVal = d.date instanceof Date ? d.date.getTime() : new Date(d.date).getTime();
+      return isNaN(dateVal) ? 0 : dateVal;
     };
   }
-  // 後備：用索引
+  // 策略3：其他欄位（lotteryDate, drawNumber 等）
+  else if (sample.lotteryDate) {
+    getTimeValue = (d) => new Date(d.lotteryDate).getTime();
+  }
+  else if (sample.drawNumber) {
+    getTimeValue = (d) => Number(d.drawNumber);
+  }
+  // 最終後備：用陣列反向索引（保證不丟資料）
   else {
-    getTimeValue = () => 0;
+    getTimeValue = (d) => -data.indexOf(d);
   }
 
-  // 直接賦值，不清空陣列
-  data.forEach(item => {
+  // 安全賦值：絕不刪除任何資料
+  data.forEach((item, idx) => {
     const val = getTimeValue(item);
-    item[SORT_KEY] = isNaN(val) ? -data.indexOf(item) : val; // 無效用反向索引
+    item[SORT_KEY] = isNaN(val) ? -idx : val;
   });
 
-  // 排序：新到舊
+  // 排序：由新到舊
   data.sort((a, b) => b[SORT_KEY] - a[SORT_KEY]);
 }
 
@@ -1183,5 +1189,6 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
