@@ -481,16 +481,34 @@ const App = {
         for (let game in this.state.rawData) {
             this.state.rawData[game] = this.state.rawData[game]
                 .map(item => {
-                    // [Fix] 侵略性清洗：轉型 Number 並剔除 NaN 與 <= 0 的數值 (解決補位0導致的長度錯誤)
+                    const gameDef = GAME_CONFIG.GAMES[game];
+                    // [Fix] 侵略性清洗 + 強制整形：解決資料長度不符導致的驗證失敗
+                    // 1. 基礎清洗：轉型 Number 並剔除無效值 (NaN, <=0)
                     const clean = (arr) => Array.isArray(arr) 
                         ? arr.map(n => Number(n)).filter(n => !isNaN(n) && n > 0) 
                         : [];
+                    
+                    let nums = clean(item.numbers);
+                    let numsSize = clean(item.numbers_size);
+
+                    // 2. 強制整形：針對 'today' (今彩539) 與 'digit' (星彩) 執行嚴格切割
+                    // 這能確保即便原始資料有雜訊 (如6碼)，也會被強制修正為正確長度 (如5碼)
+                    if (gameDef) {
+                        if (gameDef.type === 'today') {
+                            nums = nums.slice(0, 5); // 539 嚴格 5 碼
+                            numsSize = numsSize.slice(0, 5);
+                        } else if (gameDef.type === 'digit') {
+                            nums = nums.slice(0, gameDef.count); // 星彩嚴格 N 碼
+                            numsSize = numsSize.slice(0, gameDef.count);
+                        }
+                        // Lotto/Power 類型通常允許 6 或 7 碼 (含特別號)，故不強制切為 6
+                    }
 
                     return {
                         ...item,
                         date: new Date(item.date),
-                        numbers: clean(item.numbers),
-                        numbers_size: clean(item.numbers_size)
+                        numbers: nums,
+                        numbers_size: numsSize
                     };
                 });
         }
@@ -1138,4 +1156,5 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
