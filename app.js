@@ -476,14 +476,42 @@ const App = {
         }
     },
 
-    processAndRender(mergedData) {
-        this.state.rawData = mergedData.games || {};
-        for (let game in this.state.rawData) {
-            this.state.rawData[game] = this.state.rawData[game]
-                .map(item => ({ ...item, date: new Date(item.date) }));
-        }
-        this.renderGameButtons();
-    },
+processAndRender(mergedData) {
+    this.state.rawData = mergedData.games || {};
+    for (let game in this.state.rawData) {
+        this.state.rawData[game] = this.state.rawData[game]
+            .map(item => {
+                const normalized = { ...item, date: new Date(item.date) };
+                
+                // [539 修復] 確保 numbers 欄位是正確的陣列
+                if (game === '今彩539') {
+                    // 優先使用 numbers_size（大小順序），否則用 numbers
+                    const sourceNumbers = item.numbers_size || item.numbers || [];
+                    
+                    // 如果是字串，嘗試解析（例如 CSV 來源可能是逗號分隔字串）
+                    if (typeof sourceNumbers === 'string') {
+                        normalized.numbers = sourceNumbers.split(',').map(n => Number(n.trim()));
+                    } 
+                    // 如果已經是陣列，確保每個元素都是 number
+                    else if (Array.isArray(sourceNumbers)) {
+                        normalized.numbers = sourceNumbers
+                            .map(n => typeof n === 'number' ? n : Number(n))
+                            .filter(n => !isNaN(n) && n >= 1 && n <= 39);
+                    }
+                    
+                    // 保留 numbers_size 給 UI 用（顯示大小順序）
+                    if (item.numbers_size && Array.isArray(item.numbers_size)) {
+                        normalized.numbers_size = item.numbers_size
+                            .map(n => typeof n === 'number' ? n : Number(n))
+                            .filter(n => !isNaN(n) && n >= 1 && n <= 39);
+                    }
+                }
+                
+                return normalized;
+            });
+    }
+    this.renderGameButtons();
+}
 
     setSystemStatus(status, dateStr = "") {
         const text = document.getElementById('system-status-text');
@@ -1126,3 +1154,4 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
