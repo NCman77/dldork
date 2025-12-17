@@ -1099,7 +1099,10 @@ function pattern_handleDigitSingle(data, gameDef, strategy, mode, setIndex) {
     result.push({ val: pick.n, tag: `Pos${i + 1}` });
   }
 
-  const reasonPrefix = isRandom ? '隨機數字' : '嚴選數字';
+  const reasonPrefix = isRandom
+    ? '隨機推薦：依近期熱門分布，每次略作變化'
+    : '嚴選數字';
+
   return {
     numbers: result,
     groupReason: `${reasonPrefix} (${DIGIT_STRATEGIES[strategy]?.name || strategy})`,
@@ -1328,6 +1331,7 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
 
