@@ -89,7 +89,7 @@ GAMES: {
             `
         },
         '今彩539': {
-            type: 'today',
+            type: 'lotto',
             range: 39,
             count: 5,
             special: false,
@@ -298,5 +298,6 @@ article: `
         }
     }
 };
+
 
 
