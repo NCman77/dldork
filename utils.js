@@ -270,19 +270,19 @@ export async function fetchLiveLotteryData() {
                         
                         records.forEach(item => {
                             const dateStr = item.lotteryDate.split('T')[0];
-const numsSize = (item.drawNumberSize || []).map(n => parseInt(n, 10));
-const numsAppear = (item.drawNumberAppear || []).map(n => parseInt(n, 10));
-
-if (numsSize.length > 0 || numsAppear.length > 0) {
-  liveData[gameName].push({
-    date: dateStr,
-    period: String(item.period),
-    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
-    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-    jackpot: item.totalAmount || 0,
-    source: 'live_api'
-  });
-}
+                            const numsSize = item.drawNumberSize || [];
+                            const numsAppear = item.drawNumberAppear || [];
+                            
+                            if (numsSize.length > 0 || numsAppear.length > 0) {
+                                liveData[gameName].push({
+                                    date: dateStr,
+                                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                    // [新增] 抓取累積獎金 (totalAmount) - 這是備援區塊
+                                    jackpot: item.totalAmount || 0,
+                                    source: 'live_api'
+                                });
+                            }
                         });
                     }
                 }
@@ -427,13 +427,13 @@ export async function loadFromFirestore(db) {
                     snapshot.forEach(doc => {
                         const data = doc.data();
                         if (data.date >= dateThreshold) {
-gameData.push({
-  date: data.date,
-  period: data.period,
-  numbers: (data.numbers || []).map(n => parseInt(n, 10)),
-  numbers_size: (data.numbers_size || []).map(n => parseInt(n, 10)),
-  source: 'firestore'
-});
+                            gameData.push({
+                                date: data.date,
+                                period: data.period,
+                                numbers: data.numbers || [],
+                                numbers_size: data.numbers_size || [],
+                                source: 'firestore'
+                            });
                         }
                     });
                     
@@ -580,8 +580,6 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
-
-
 
 
 
