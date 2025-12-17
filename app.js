@@ -480,13 +480,19 @@ const App = {
         this.state.rawData = mergedData.games || {};
         for (let game in this.state.rawData) {
             this.state.rawData[game] = this.state.rawData[game]
-                .map(item => ({
-                    ...item,
-                    date: new Date(item.date),
-                    // [Fix] 強制轉型為 Number，以通過 algo_pattern V6.1 的嚴格驗證
-                    numbers: Array.isArray(item.numbers) ? item.numbers.map(n => Number(n)) : [],
-                    numbers_size: Array.isArray(item.numbers_size) ? item.numbers_size.map(n => Number(n)) : []
-                }));
+                .map(item => {
+                    // [Fix] 侵略性清洗：轉型 Number 並剔除 NaN 與 <= 0 的數值 (解決補位0導致的長度錯誤)
+                    const clean = (arr) => Array.isArray(arr) 
+                        ? arr.map(n => Number(n)).filter(n => !isNaN(n) && n > 0) 
+                        : [];
+
+                    return {
+                        ...item,
+                        date: new Date(item.date),
+                        numbers: clean(item.numbers),
+                        numbers_size: clean(item.numbers_size)
+                    };
+                });
         }
         this.renderGameButtons();
     },
@@ -1132,3 +1138,4 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
