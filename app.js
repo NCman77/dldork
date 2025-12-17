@@ -483,13 +483,17 @@ const App = {
                 .map(item => {
                     const gameDef = GAME_CONFIG.GAMES[game];
                     // [Fix] 侵略性清洗 + 強制整形：解決資料長度不符導致的驗證失敗
-                    // 1. 基礎清洗：轉型 Number 並剔除無效值 (NaN, <=0)
-                    const clean = (arr) => Array.isArray(arr) 
-                        ? arr.map(n => Number(n)).filter(n => !isNaN(n) && n > 0) 
+// 1. 基礎清洗：轉型 Number 並剔除無效值（digit 允許 0，其餘玩法不允許 0）
+                    const minValid = (gameDef && gameDef.type === 'digit') ? 0 : 1;
+                    const clean = (arr) => Array.isArray(arr)
+                        ? arr.map(n => Number(n)).filter(n => !isNaN(n) && n >= minValid)
                         : [];
                     
                     let nums = clean(item.numbers);
                     let numsSize = clean(item.numbers_size);
+
+                    
+
 
                     // 2. 強制整形：針對 'today' (今彩539) 與 'digit' (星彩) 執行嚴格切割
                     // 這能確保即便原始資料有雜訊 (如6碼)，也會被強制修正為正確長度 (如5碼)
@@ -1156,5 +1160,6 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
