@@ -927,7 +927,12 @@ const App = {
 
         // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
         
-        const count = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
+       // ✅ digit(3/4星彩) 嚴選 = Top1 唯一最強 → 只出 1 組，避免 5 組重複
+const count =
+  (gameDef.type === 'digit' && !isPack && !isRandom)
+    ? 1
+    : (isPack ? 3 : 5);
+
         const excludeSet = new Set();
         const packPool = [];
 
@@ -1156,5 +1161,6 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
