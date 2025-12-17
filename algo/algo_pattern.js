@@ -346,7 +346,7 @@ function pattern_validateDigit(data, gameDef) {
 }
 
 function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
-  pattern_sortData(cleaned);
+  // pattern_sortData(cleaned);  // 暫時停用，解決今彩539 被清空問題
 
   const thresholds = gameDef.type === 'digit'
     ? PATTERN_CONFIG.DATA_THRESHOLDS.digit
@@ -1190,6 +1190,7 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
 
