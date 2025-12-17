@@ -346,7 +346,7 @@ function pattern_validateDigit(data, gameDef) {
 }
 
 function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
-  // pattern_sortData(cleaned);  // 暫時停用，解決今彩539 被清空問題
+  pattern_sortData(cleaned);
 
   const thresholds = gameDef.type === 'digit'
     ? PATTERN_CONFIG.DATA_THRESHOLDS.digit
@@ -379,46 +379,45 @@ function pattern_finalizeValidation(cleaned, rejected, gameDef, originalSize) {
   };
 }
 
-// V6.1 修復7 - 改良版排序防呆（專治今彩539 清空問題）
+// V6.1: 修復7 - 排序欄位防呆
 function pattern_sortData(data) {
   if (data.length === 0) return;
 
   const sample = data[0];
-  let getSortValue = null;
+  let getTimeValue = null;
 
-  // 策略1：優先用 period 排序（今彩539 完美適用，期數越大越新）
-  if (sample.period !== undefined) {
-    getSortValue = (item) => {
-      const p = String(item.period || '').replace(/\D/g, '');
-      const num = parseInt(p, 10);
-      return isNaN(num) ? 0 : num;
-    };
-  }
-  // 策略2：用 date 轉時間戳
-  else if (sample.date !== undefined) {
-    getSortValue = (item) => {
-      const dateObj = item.date instanceof Date ? item.date : new Date(item.date);
-      const time = dateObj.getTime();
-      return isNaN(time) ? 0 : time;
-    };
-  }
-  // 策略3：其他常見欄位
-  else if (sample.lotteryDate) {
-    getSortValue = (item) => new Date(item.lotteryDate).getTime();
-  }
-  else if (sample.drawNumber) {
-    getSortValue = (item) => Number(item.drawNumber || 0);
-  }
-  // 最終保底：維持原順序（用負索引，最新在前面）
-  else {
-    getSortValue = (item, index) => -index;
+  if (sample.hasOwnProperty('date')) {
+    getTimeValue = (d) => d.date instanceof Date ? d.date.getTime() : new Date(d.date).getTime();
+  } else if (sample.hasOwnProperty('lotteryDate')) {
+    getTimeValue = (d) => new Date(d.lotteryDate).getTime();
+  } else if (sample.hasOwnProperty('period')) {
+    getTimeValue = (d) => typeof d.period === 'string' ? parseFloat(d.period) : Number(d.period);
+  } else if (sample.hasOwnProperty('drawNumber')) {
+    getTimeValue = (d) => typeof d.drawNumber === 'string' ? parseInt(d.drawNumber) : Number(d.drawNumber);
+  } else {
+    getTimeValue = () => 0;
   }
 
-  // 賦值並排序，絕不刪除任何資料
-  data.forEach((item, index) => {
-    const value = getSortValue(item, index);
-    item[SORT_KEY] = isNaN(value) ? -index : value;
-  });
+  try {
+    // V6.1: 排序欄位缺失時標記為 null，後續會被過濾
+    for (const item of data) {
+      const val = getTimeValue(item);
+      item[SORT_KEY] = isNaN(val) || val === 0 ? null : val;
+    }
+    
+    // V6.1: 過濾掉無效時序的資料
+    const validData = data.filter(item => item[SORT_KEY] !== null);
+    if (validData.length < data.length * 0.9) {
+      // 如果超過10%資料無效，使用索引作為後備
+      data.forEach((item, idx) => item[SORT_KEY] = -idx);
+    } else {
+      // 移除無效資料
+      data.length = 0;
+      data.push(...validData);
+    }
+  } catch (e) {
+    data.forEach((item, idx) => item[SORT_KEY] = -idx);
+  }
 
   data.sort((a, b) => b[SORT_KEY] - a[SORT_KEY]);
 }
@@ -1190,8 +1189,4 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
-
-
-
-
 
