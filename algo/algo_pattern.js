@@ -286,52 +286,32 @@ function pattern_validateLotto(data, gameDef) {
 }
 
 function pattern_validateToday(data, gameDef) {
-const cleaned = [];
+  const cleaned = [];
   let rejected = 0;
 
   for (const d of data) {
-    // [V6.2 Fix] 智能容錯處理：
-    // 1. 欄位備援：若 numbers 為空，嘗試讀取 numbers_size 或 drawNumberSize (API)
-    let rawNums = d.numbers;
-    if (!Array.isArray(rawNums) || rawNums.length === 0) {
-       if (Array.isArray(d.numbers_size)) rawNums = d.numbers_size;
-       else if (Array.isArray(d.drawNumberSize)) rawNums = d.drawNumberSize;
-    }
-
-    if (!Array.isArray(rawNums)) {
+    if (!d || !Array.isArray(d.numbers)) {
       rejected++;
       continue;
     }
 
-    // 2. 強制清洗：轉型 Number，剔除 NaN 與 <= 0 (排除雜訊與補位0)
-    const validNums = rawNums
-        .map(n => Number(n))
-        .filter(n => !isNaN(n) && n > 0);
-
-    // 3. 彈性長度：允許長度 >= 5 (解決 API 傳入 6 碼或含雜訊的問題)
-    if (validNums.length < 5) {
+    if (d.numbers.length !== 5) {
       rejected++;
       continue;
     }
 
-    // 4. 自動整形：強制只取前 5 碼，確保演算法收到標準格式
-    const finalNums = validNums.slice(0, 5);
-
-    // 5. 數值範圍檢查 (1-39)
-    const hasInvalidNum = finalNums.some(n => n < 1 || n > 39);
+    const hasInvalidNum = d.numbers.some(n => typeof n !== 'number' || n < 1 || n > 39);
     if (hasInvalidNum) {
       rejected++;
       continue;
     }
 
-    // 6. 重複檢查
-    if (new Set(finalNums).size !== 5) {
+    if (new Set(d.numbers).size !== 5) {
       rejected++;
       continue;
     }
 
-    // 成功：回寫標準化後的 numbers (確保是 5 碼純數字)
-    cleaned.push({ ...d, numbers: finalNums });
+    cleaned.push({ ...d });
   }
 
   return pattern_finalizeValidation(cleaned, rejected, gameDef, data.length);
@@ -1209,5 +1189,4 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
-
 
