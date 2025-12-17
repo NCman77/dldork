@@ -511,7 +511,7 @@ processAndRender(mergedData) {
             });
     }
     this.renderGameButtons();
-}
+},
 
     setSystemStatus(status, dateStr = "") {
         const text = document.getElementById('system-status-text');
@@ -1154,4 +1154,5 @@ processAndRender(mergedData) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
