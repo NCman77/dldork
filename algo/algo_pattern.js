@@ -970,12 +970,17 @@ function pattern_handleDigitSingle(data, gameDef, strategy, mode, setIndex) {
   });
 
   const result = [];
-  const pickIndex = strategy === 'conservative' ? 1 : 0;
+
+  // ✅ 嚴選(strict) = Top1（不受 setIndex 影響）
+  // ✅ 隨機(random) 仍維持原本的「Top5 內加噪」機制
+  const pickIndexRandomBase = strategy === 'conservative' ? 1 : 0;
+
   for (let i = 0; i < count; i++) {
-    const actualIdx = isRandom ? pickIndex : ((pickIndex + (setIndex % 5)) % 5);
+    const actualIdx = isRandom ? pickIndexRandomBase : 0; // strict 固定 Top1
     const pick = rankedPos[i][actualIdx] || rankedPos[i][0];
     result.push({ val: pick.n, tag: `Pos${i + 1}` });
   }
+
 
   const reasonPrefix = isRandom ? '隨機數字' : '嚴選數字';
   return {
@@ -1206,5 +1211,6 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
 
