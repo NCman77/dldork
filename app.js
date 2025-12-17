@@ -476,44 +476,42 @@ const App = {
         }
     },
 
-    processAndRender(mergedData) {
-        this.state.rawData = mergedData.games || {};
-        for (let game in this.state.rawData) {
-            this.state.rawData[game] = this.state.rawData[game]
-                .map(item => {
-                    const gameDef = GAME_CONFIG.GAMES[game];
-                    // [Fix] 侵略性清洗 + 強制整形：解決資料長度不符導致的驗證失敗
-                    // 1. 基礎清洗：轉型 Number 並剔除無效值 (NaN, <=0)
-                    const clean = (arr) => Array.isArray(arr) 
-                        ? arr.map(n => Number(n)).filter(n => !isNaN(n) && n > 0) 
-                        : [];
+processAndRender(mergedData) {
+    this.state.rawData = mergedData.games || {};
+    for (let game in this.state.rawData) {
+        this.state.rawData[game] = this.state.rawData[game]
+            .map(item => {
+                const normalized = { ...item, date: new Date(item.date) };
+                
+                // [539 修復] 確保 numbers 欄位是正確的陣列
+                if (game === '今彩539') {
+                    // 優先使用 numbers_size（大小順序），否則用 numbers
+                    const sourceNumbers = item.numbers_size || item.numbers || [];
                     
-                    let nums = clean(item.numbers);
-                    let numsSize = clean(item.numbers_size);
-
-                    // 2. 強制整形：針對 'today' (今彩539) 與 'digit' (星彩) 執行嚴格切割
-                    // 這能確保即便原始資料有雜訊 (如6碼)，也會被強制修正為正確長度 (如5碼)
-                    if (gameDef) {
-                        if (gameDef.type === 'today') {
-                            nums = nums.slice(0, 5); // 539 嚴格 5 碼
-                            numsSize = numsSize.slice(0, 5);
-                        } else if (gameDef.type === 'digit') {
-                            nums = nums.slice(0, gameDef.count); // 星彩嚴格 N 碼
-                            numsSize = numsSize.slice(0, gameDef.count);
-                        }
-                        // Lotto/Power 類型通常允許 6 或 7 碼 (含特別號)，故不強制切為 6
+                    // 如果是字串，嘗試解析（例如 CSV 來源可能是逗號分隔字串）
+                    if (typeof sourceNumbers === 'string') {
+                        normalized.numbers = sourceNumbers.split(',').map(n => Number(n.trim()));
+                    } 
+                    // 如果已經是陣列，確保每個元素都是 number
+                    else if (Array.isArray(sourceNumbers)) {
+                        normalized.numbers = sourceNumbers
+                            .map(n => typeof n === 'number' ? n : Number(n))
+                            .filter(n => !isNaN(n) && n >= 1 && n <= 39);
                     }
-
-                    return {
-                        ...item,
-                        date: new Date(item.date),
-                        numbers: nums,
-                        numbers_size: numsSize
-                    };
-                });
-        }
-        this.renderGameButtons();
-    },
+                    
+                    // 保留 numbers_size 給 UI 用（顯示大小順序）
+                    if (item.numbers_size && Array.isArray(item.numbers_size)) {
+                        normalized.numbers_size = item.numbers_size
+                            .map(n => typeof n === 'number' ? n : Number(n))
+                            .filter(n => !isNaN(n) && n >= 1 && n <= 39);
+                    }
+                }
+                
+                return normalized;
+            });
+    }
+    this.renderGameButtons();
+},
 
     setSystemStatus(status, dateStr = "") {
         const text = document.getElementById('system-status-text');
@@ -927,12 +925,7 @@ const App = {
 
         // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
         
-       // ✅ digit(3/4星彩) 嚴選 = Top1 唯一最強 → 只出 1 組，避免 5 組重複
-const count =
-  (gameDef.type === 'digit' && !isPack && !isRandom)
-    ? 1
-    : (isPack ? 3 : 5);
-
+        const count = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
         const excludeSet = new Set();
         const packPool = [];
 
@@ -1161,6 +1154,5 @@ const count =
 
 window.app = App;
 window.onload = () => App.init();
-
 
 
