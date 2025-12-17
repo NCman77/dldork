@@ -236,46 +236,62 @@ function pattern_validateLotto(data, gameDef) {
   const cleaned = [];
   let rejected = 0;
 
+  // 以 gameDef 為準（539: count=5, range=39；大樂透: count=6, range=49）
+  const mainCount = (typeof gameDef.count === 'number' && gameDef.count > 0) ? gameDef.count : 6;
+  const range = (typeof gameDef.range === 'number' && gameDef.range > 0) ? gameDef.range : 49;
+
+  // 特別號允許條件：
+  // 1) 明確宣告 gameDef.special 為 true
+  // 2) 或維持既有相容：主號為 6 的 lotto（通常代表大樂透類）允許第 7 顆特別號
+  const allowSpecial = !!gameDef.special || mainCount === 6;
+
   for (const d of data) {
     if (!d || !Array.isArray(d.numbers)) {
       rejected++;
       continue;
     }
 
-    if (d.numbers.length < 6 || d.numbers.length > 7) {
+    const len = d.numbers.length;
+
+    // 長度必須是 mainCount（例如539=5）或（允許特別號時）mainCount+1
+    const isValidLen = (len === mainCount) || (allowSpecial && len === mainCount + 1);
+    if (!isValidLen) {
       rejected++;
       continue;
     }
 
-    const mainNumbers = d.numbers.slice(0, 6);
-    const specialNumber = d.numbers.length === 7 ? d.numbers[6] : null;
+    const mainNumbers = d.numbers.slice(0, mainCount);
+    const specialNumber = (len === mainCount + 1) ? d.numbers[mainCount] : null;
 
-    const hasInvalidNum = mainNumbers.some(n => typeof n !== 'number' || n < 1 || n > 49);
-    if (hasInvalidNum) {
+    // 主號：型別 + 範圍
+    const hasInvalidMain = mainNumbers.some(n => typeof n !== 'number' || n < 1 || n > range);
+    if (hasInvalidMain) {
       rejected++;
       continue;
     }
 
-    if (new Set(mainNumbers).size !== 6) {
+    // 主號：不得重複
+    if (new Set(mainNumbers).size !== mainCount) {
       rejected++;
       continue;
     }
 
+    // 特別號（若存在）：型別 + 範圍
     if (specialNumber !== null) {
-      if (typeof specialNumber !== 'number' || specialNumber < 1 || specialNumber > 49) {
+      if (typeof specialNumber !== 'number' || specialNumber < 1 || specialNumber > range) {
+        rejected++;
+        continue;
+      }
+      // V6.1: 修復8 - 檢查特別號不得與主號重複
+      if (mainNumbers.includes(specialNumber)) {
         rejected++;
         continue;
       }
     }
 
-    // V6.1: 修復8 - 檢查特別號不得與主號重複
-    if (specialNumber !== null && mainNumbers.includes(specialNumber)) {
-      rejected++;
-      continue;
-    }
-
-    cleaned.push({ 
-      ...d, 
+    // 清洗後：numbers 一律只保留主號（避免後續把特別號當主號運算）
+    cleaned.push({
+      ...d,
       numbers: mainNumbers,
       mainNumbers: mainNumbers,
       specialNumber: specialNumber
@@ -284,6 +300,7 @@ function pattern_validateLotto(data, gameDef) {
 
   return pattern_finalizeValidation(cleaned, rejected, gameDef, data.length);
 }
+
 
 function pattern_validateToday(data, gameDef) {
   const cleaned = [];
@@ -1189,4 +1206,5 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
