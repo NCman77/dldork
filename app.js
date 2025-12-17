@@ -1076,8 +1076,15 @@ const App = {
             wuxing: 'bg-pink-100 text-pink-800'
         };
         const colorClass = colors[this.state.currentSchool] || 'bg-stone-200';
-        
+
         const displayLabel = label ? label : `SET ${index}`;
+
+        // ===== 只改 UI 顯示：Pos1/Pos2/... 轉成「位數」名稱（不動演算法輸出）=====
+        const posNameMapByGame = {
+            '3星彩': ['佰位', '拾位', '個位'],
+            '4星彩': ['仟位', '佰位', '拾位', '個位']
+        };
+        const posNames = posNameMapByGame[this.state.currentGame] || null;
 
         let html = `
           <div class="flex flex-col gap-2 p-4 bg-white rounded-xl border border-stone-200 shadow-sm animate-fade-in hover:shadow-md transition">
@@ -1085,18 +1092,34 @@ const App = {
               <span class="text-[10px] font-black text-stone-300 tracking-widest uppercase">${displayLabel}</span>
               <div class="flex flex-wrap gap-2">
         `;
+
         resultObj.numbers.forEach(item => {
+            let displayTag = item.tag;
+
+            // 只在 3/4 星彩把 PosX 轉成位數名稱
+            if (posNames && typeof displayTag === 'string') {
+                const m = displayTag.match(/^Pos(\d+)$/);
+                if (m) {
+                    const idx = parseInt(m[1], 10) - 1;
+                    if (idx >= 0 && idx < posNames.length) {
+                        displayTag = posNames[idx];
+                    }
+                }
+            }
+
             html += `
               <div class="flex flex-col items-center">
                 <div class="ball-sm ${colorClass}" style="box-shadow: none;">${item.val}</div>
-                ${item.tag ? `<div class="reason-tag">${item.tag}</div>` : ''}
+                ${displayTag ? `<div class="reason-tag">${displayTag}</div>` : ''}
               </div>
             `;
         });
+
         html += `
               </div>
             </div>
         `;
+
         if (resultObj.groupReason) {
             html += `
               <div class="text-[10px] text-stone-500 font-medium bg-stone-50 px-2 py-1.5 rounded border border-stone-100 flex items-center gap-1">
@@ -1104,9 +1127,11 @@ const App = {
               </div>
             `;
         }
+
         html += `</div>`;
         container.innerHTML += html;
     },
+
 
     populateYearSelect() {
         const yearSelect = document.getElementById('search-year');
@@ -1160,6 +1185,7 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
