@@ -290,28 +290,51 @@ function pattern_validateToday(data, gameDef) {
   let rejected = 0;
 
   for (const d of data) {
-    if (!d || !Array.isArray(d.numbers)) {
+   // [V6.3 Fix] 優勝劣汰機制：不相信任何單一欄位，誰能清洗出 5 個數字就用誰
+    
+    // 定義清洗工具：轉型 Number -> 剔除 NaN -> 剔除 <= 0
+    const tryClean = (arr) => {
+        if (!Array.isArray(arr)) return [];
+        return arr.map(n => Number(n)).filter(n => !isNaN(n) && n > 0);
+    };
+
+    // 1. 優先嘗試標準欄位 numbers
+    let finalNums = tryClean(d.numbers);
+
+    // 2. 如果 numbers 爛掉了 (清洗後不足 5 碼)，強制切換到 numbers_size
+    if (finalNums.length < 5) {
+        finalNums = tryClean(d.numbers_size);
+    }
+
+    // 3. 如果 numbers_size 也爛掉了，死馬當活馬醫，試試 API 原生欄位
+    if (finalNums.length < 5) {
+        finalNums = tryClean(d.drawNumberSize);
+    }
+
+    // 4. 生死判決：如果經過三輪搶救還是湊不齊 5 個號碼，那這筆資料是真的沒救了
+    if (finalNums.length < 5) {
       rejected++;
       continue;
     }
 
-    if (d.numbers.length !== 5) {
-      rejected++;
-      continue;
-    }
+    // 5. 強制整形：只取前 5 碼 (解決 6 碼或雜訊問題)
+    finalNums = finalNums.slice(0, 5);
 
-    const hasInvalidNum = d.numbers.some(n => typeof n !== 'number' || n < 1 || n > 39);
+    // 6. 數值範圍檢查 (1-39)
+    const hasInvalidNum = finalNums.some(n => n < 1 || n > 39);
     if (hasInvalidNum) {
       rejected++;
       continue;
     }
 
-    if (new Set(d.numbers).size !== 5) {
+    // 7. 重複檢查
+    if (new Set(finalNums).size !== 5) {
       rejected++;
       continue;
     }
 
-    cleaned.push({ ...d });
+    // 成功：回寫標準化後的 numbers
+    cleaned.push({ ...d, numbers: finalNums });
   }
 
   return pattern_finalizeValidation(cleaned, rejected, gameDef, data.length);
@@ -1189,4 +1212,5 @@ function pattern_fisherYates(arr) {
   }
   return res;
 }
+
 
