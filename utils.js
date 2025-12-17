@@ -427,13 +427,13 @@ export async function loadFromFirestore(db) {
                     snapshot.forEach(doc => {
                         const data = doc.data();
                         if (data.date >= dateThreshold) {
-                            gameData.push({
-                                date: data.date,
-                                period: data.period,
-                                numbers: data.numbers || [],
-                                numbers_size: data.numbers_size || [],
-                                source: 'firestore'
-                            });
+gameData.push({
+  date: data.date,
+  period: data.period,
+  numbers: (data.numbers || []).map(n => parseInt(n, 10)),
+  numbers_size: (data.numbers_size || []).map(n => parseInt(n, 10)),
+  source: 'firestore'
+});
                         }
                     });
                     
@@ -580,6 +580,7 @@ export function getHeTuNumbers(star) {
     if (["紫微", "天府", "天相", "左輔", "右弼"].some(s => star.includes(s))) return [5, 0]; 
     return [];
 }
+
 
 
 
