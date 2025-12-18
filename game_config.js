@@ -248,38 +248,37 @@ article: `
                 </details>
             ` 
         },
-ai: { 
-    color: "border-school-ai", 
-    title: "AI 學派", 
-    desc: `
-        <div>
-            <span class="font-bold text-school-ai block mb-1 text-sm">核心策略：</span>
-            <p class="text-justify leading-relaxed text-stone-600 text-sm">
-                時間序列動能分析。採用半衰期指數衰減建立 short / long 雙尺度時間軸，
-                計算 Log-Lift 動能（近期趨勢相對長期基準的對數比），
-                並使用 Kish 有效樣本數進行貝氏收縮，避免小樣本過擬合。
-            </p>
-        </div>
-        <details class="mt-3 group">
-            <summary class="cursor-pointer font-bold text-school-ai text-sm list-none flex items-center gap-2 transition-all hover:opacity-80">
-                <span>▶ 混合算法 (Logic Mix)：</span>
-            </summary>
-            <div class="mt-2 pl-3 text-xs text-stone-500 space-y-2 border-l-2 border-school-ai">
-                <p>1. 半衰期權重 (Half-Life Decay)：依距離現在的遠近，賦予每期指數衰減權重，越近權重越高。</p>
-                <p>2. 曝光槽位 E (Exposure Slots)：統一尺度計算每個號碼的「總曝光機會」（樂透每期 6 槽，威力彩第2區 1 槽，digit 每位 1 槽）。</p>
-                <p>3. Log-Lift 動能 (Momentum)：計算 log(p_short / p_long)，正值代表近期偏熱，負值代表近期偏冷。</p>
-                <p>4. Kish Neff 收縮 (Shrinkage)：依有效樣本數決定收縮強度，小樣本時拉回接近 0，大樣本時更相信動能。</p>
-                <p>5. 趨勢分 0-100 (Trend Score)：使用 Percentile Rank 將收縮後的動能轉為直觀分數，越高代表近期動能越強（不是「該出了」，而是「近期偏熱」）。</p>
-                <p>6. 嚴選 TOP5 (Deterministic)：基於注級 ComboScore 排序，採用 overlap 階梯去重（2→4 顆共享），確保同輸入同輸出。</p>
-                <p>7. 隨機模式 (Random)：基於 Softmax 溫度抽樣，保持趨勢傾向但每次不同，永不卡死（有重試與 fallback）。</p>
-                <div class="mt-2 pt-2 border-t border-stone-200">
-                    <span class="font-bold text-red-500">🔴 證據顯示 (Tag)：</span>
-                    <p class="mt-1">趨勢分88：代表該號碼在候選池中排名前 88%，動能強勁。</p>
+        ai: { 
+            color: "border-school-ai", 
+            title: "AI 學派", 
+            desc: `
+                <div>
+                    <span class="font-bold text-school-ai block mb-1 text-sm">核心策略：</span>
+                    <p class="text-justify leading-relaxed text-stone-600 text-sm">
+                        時間序列動能分析。採用半衰期指數衰減建立 short / long 雙尺度時間軸，
+                        計算 Log-Lift 動能（近期趨勢相對長期基準的對數比），
+                        並使用 Kish 有效樣本數進行貝氏收縮，避免小樣本過擬合。
+                    </p>
                 </div>
-            </div>
-        </details>
-    ` 
-}
+                <details class="mt-3 group">
+                    <summary class="cursor-pointer font-bold text-school-ai text-sm list-none flex items-center gap-2 transition-all hover:opacity-80">
+                        <span>▶ 混合算法 (Logic Mix)：</span>
+                    </summary>
+                    <div class="mt-2 pl-3 text-xs text-stone-500 space-y-2 border-l-2 border-school-ai">
+                        <p>1. 半衰期權重：依距離現在的遠近，賦予每期指數衰減權重，越近權重越高。</p>
+                        <p>2. 曝光槽位 E：統一尺度計算每個號碼的「總曝光機會」（樂透每期 6 槽，威力彩第2區 1 槽，digit 每位 1 槽）。</p>
+                        <p>3. Log-Lift 動能：計算 log(p_short / p_long)，正值代表近期偏熱，負值代表近期偏冷。</p>
+                        <p>4. Kish Neff 收縮：依有效樣本數決定收縮強度，小樣本時拉回接近 0，大樣本時更相信動能。</p>
+                        <p>5. 趨勢分 0-100：使用 Percentile Rank 將收縮後的動能轉為直觀分數。</p>
+                        <div class="mt-2 pt-2 border-t border-stone-200">
+                            <span class="font-bold text-red-500">🔴 證據顯示 (Tag)：</span>
+                            <p class="mt-1">趨勢分88：代表該號碼在候選池中排名前 88%，動能強勁。</p>
+                        </div>
+                    </div>
+                </details>
+            ` 
+        },
+
 
         wuxing: {
             color: "border-school-wuxing",
@@ -308,6 +307,7 @@ ai: {
         }
     }
 };
+
 
 
 
