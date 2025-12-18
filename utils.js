@@ -276,6 +276,7 @@ export async function fetchLiveLotteryData() {
                             if (numsSize.length > 0 || numsAppear.length > 0) {
                                 liveData[gameName].push({
                                     date: dateStr,
+                                    period: String(item.period),
                                     numbers: numsAppear.length > 0 ? numsAppear : numsSize,
                                     numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
                                     // [新增] 抓取累積獎金 (totalAmount) - 這是備援區塊
@@ -325,16 +326,25 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
         }
     }
 
-    // 4. 去重與排序
+    // 4. 去重與排序（修正：使用優先權比較）
     for (const game in merged) {
         const unique = new Map();
+        
+        // 定義優先權（數字越大越優先）
+        const priority = { 'live_api': 3, 'firestore': 2, 'history_zip': 1 };
+        
         merged[game].forEach(item => {
             const key = `${item.date instanceof Date ? item.date.toISOString().split('T')[0] : item.date}-${item.period}`;
-            // Live API > Firestore > ZIP > Base (後蓋前)
-            if (!unique.has(key) || item.source === 'live_api') {
+            
+            // 比較優先權，後來的優先權 >= 既有的就覆蓋
+            const existingPriority = unique.has(key) ? priority[unique.get(key).source] || 0 : 0;
+            const newPriority = priority[item.source] || 0;
+            
+            if (newPriority >= existingPriority) {
                 unique.set(key, item);
             }
         });
+        
         // 轉回陣列並排序 (由新到舊)
         merged[game] = Array.from(unique.values()).sort((a, b) => {
             const da = new Date(a.date);
@@ -581,5 +591,151 @@ export function getHeTuNumbers(star) {
     return [];
 }
 
+// ==========================================
+// 5. AI 學派專用統計工具 (AI School Stats V7.0)
+// ==========================================
 
+/**
+ * 計算半衰期指數衰減權重
+ * @param {number} dataLength - 歷史資料總筆數
+ * @param {number} halfLife - 半衰期參數（h）
+ * @returns {number[]} - 權重陣列，[0] 為最新一期
+ */
+export function ai_computeHalfLifeWeights(dataLength, halfLife) {
+    const weights = [];
+    for (let i = 0; i < dataLength; i++) {
+        weights.push(Math.pow(0.5, i / halfLife));
+    }
+    return weights;
+}
 
+/**
+ * 計算加權統計（曝光槽位 E 和出現次數 C）
+ * 注意：numbersPerDraw 必須由呼叫端依據 gameDef 拆好區（主區/特別號/第2區）
+ * @param {number[][]} numbersPerDraw - 每期號碼陣列（已拆區），例如 [[1,2,3,4,5,6], [3,5,7,9,12,18], ...]
+ * @param {number[]} weights - 權重陣列
+ * @param {number} minNum - 最小號碼（樂透為 1，digit 為 0）
+ * @param {number} maxNum - 最大號碼（樂透為 range，digit 為 9）
+ * @returns {Object} { E: 加權曝光槽位, C: 每個號碼的加權出現次數 }
+ */
+export function ai_computeWeightedStats(numbersPerDraw, weights, minNum, maxNum) {
+    let E = 0;
+    const C = {};
+    
+    // 初始化 C（包含所有可能號碼，含 0）
+    for (let n = minNum; n <= maxNum; n++) {
+        C[n] = 0;
+    }
+    
+    numbersPerDraw.forEach((nums, idx) => {
+        // 防護：weights 越界時視為權重 0
+        const w = (idx < weights.length) ? weights[idx] : 0;
+        E += w * nums.length; // 該期曝光槽位數 × 權重
+        
+        nums.forEach(num => {
+            if (C[num] !== undefined) {
+                C[num] += w;
+            }
+        });
+    });
+    
+    return { E, C };
+}
+
+/**
+ * 計算 Log-Lift 動能分數
+ * @param {Object} C_short - 短期加權出現次數 { [num]: count }
+ * @param {number} E_short - 短期加權曝光槽位
+ * @param {Object} C_long - 長期加權出現次數 { [num]: count }
+ * @param {number} E_long - 長期加權曝光槽位
+ * @param {number} minNum - 最小號碼
+ * @param {number} maxNum - 最大號碼
+ * @param {number} epsilon - 加性平滑參數（預設 0.5）
+ * @returns {Object} - { [num]: momentum }
+ */
+export function ai_computeLogLift(C_short, E_short, C_long, E_long, minNum, maxNum, epsilon = 0.5) {
+    const momentum = {};
+    const rangeCount = maxNum - minNum + 1;
+    
+    for (let n = minNum; n <= maxNum; n++) {
+        const p_short = (C_short[n] + epsilon) / (E_short + epsilon * rangeCount);
+        const p_long = (C_long[n] + epsilon) / (E_long + epsilon * rangeCount);
+        momentum[n] = Math.log(p_short / p_long);
+    }
+    
+    return momentum;
+}
+
+/**
+ * 計算 Kish 有效樣本數並進行收縮
+ * @param {number[]} weights - 權重陣列
+ * @param {number} k - 先驗強度參數（預設 8）
+ * @returns {number} - 收縮係數 s（0~1 之間）
+ */
+export function ai_computeKishShrinkage(weights, k = 8) {
+    const sumW = weights.reduce((a, b) => a + b, 0);
+    const sumW2 = weights.reduce((a, b) => a + b * b, 0);
+    
+    // 防護：避免除以 0
+    if (sumW2 === 0) return 0;
+    
+    const Neff = (sumW * sumW) / sumW2;
+    const s = Neff / (Neff + k);
+    return s;
+}
+
+/**
+ * Percentile Rank 轉換（含低變異拉伸）
+ * @param {Object} scores - { [num]: finalScore }
+ * @param {number} clampMin - 最小趨勢分（預設 10）
+ * @param {number} clampMax - 最大趨勢分（預設 98）
+ * @param {number} lowVarianceThreshold - 低變異門檻（預設 0.15）
+ * @param {number} stretchFactor - 拉伸係數（預設 1.8）
+ * @returns {Object} - { [num]: trendScore (clampMin ~ clampMax) }
+ */
+export function ai_percentileRankTransform(scores, clampMin = 10, clampMax = 98, lowVarianceThreshold = 0.15, stretchFactor = 1.8) {
+    const nums = Object.keys(scores).map(Number);
+    const values = nums.map(n => scores[n]);
+    
+    // 防護：空陣列
+    if (values.length === 0) return {};
+    
+    // 計算標準差
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, v) => a + Math.pow(v - mean, 2), 0) / values.length;
+    const std = Math.sqrt(variance);
+    
+    // 低變異拉伸（以 mean 為中心，在 percentile 之前做）
+    let processedScores = { ...scores };
+    if (std < lowVarianceThreshold) {
+        nums.forEach(n => {
+            processedScores[n] = mean + stretchFactor * (scores[n] - mean);
+        });
+    }
+    
+    // Deterministic 排序（同分時用號碼 n 決定）
+    const sortedNums = nums.sort((a, b) => {
+        const diff = processedScores[a] - processedScores[b];
+        if (Math.abs(diff) < 1e-10) return a - b; // tie-break: 號碼小的排前面
+        return diff;
+    });
+    
+    // Percentile Rank 轉換為趨勢分（線性映射 10~98）
+    const trendScores = {};
+    const rangeSpan = clampMax - clampMin; // 98 - 10 = 88
+    
+    sortedNums.forEach((n, rank) => {
+        let trendScore;
+        if (sortedNums.length === 1) {
+            // 防護：只有 1 個號碼時給中間值
+            trendScore = clampMin + Math.round(rangeSpan / 2);
+        } else {
+            // 線性映射：10 + (rank / (n-1)) * 88
+            trendScore = clampMin + Math.round((rank / (sortedNums.length - 1)) * rangeSpan);
+        }
+        
+        trendScores[n] = trendScore;
+    });
+    
+    return trendScores;
+}
