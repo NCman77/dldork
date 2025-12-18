@@ -1,7 +1,40 @@
 /**
  * utils.js
  * 全功能工具箱：包含數學運算、統計邏輯、命理轉換，以及資料讀取與 API 連線 (Scheme B)
+ * 
+ * Final Version（移除 Firestore）：
+ * - P0: 移除所有 Firestore 相關功能
+ * - P1: DEBUG_MODE（URL 參數 + 開發環境限定）
+ * - P1: Log 優化（摘要模式）
+ * - 保留：LocalStorage 快取（加速二次載入）
  */
+
+// ==========================================
+// 0. Debug 模式設定 (Debug Configuration)
+// ==========================================
+
+// 檢查是否為開發環境
+const isDev = window.location.hostname === 'localhost' || 
+              window.location.hostname === '127.0.0.1' ||
+              window.location.hostname === '';
+
+// 讀取 URL 參數
+const urlParams = new URLSearchParams(window.location.search);
+const debugParam = urlParams.get('debug'); // 'zip' | 'csv' | 'api' | 'all'
+const debugKey = urlParams.get('key');     // 密碼保護（production 需要）
+
+// 密碼驗證（請修改成您的密鑰）
+const SECRET_DEBUG_KEY = 'lottery2025';
+const allowDebug = isDev || debugKey === SECRET_DEBUG_KEY;
+
+// Debug 開關（可透過 URL 參數控制）
+const DEBUG_MODE = {
+    ZIP: allowDebug && (debugParam === 'all' || debugParam === 'zip'),
+    CSV: allowDebug && (debugParam === 'all' || debugParam === 'csv'),
+    API: allowDebug && (debugParam === 'all' || debugParam === 'api'),
+    SUMMARY: true,  // 摘要永遠開啟
+    ERROR: true     // 錯誤永遠開啟
+};
 
 // ==========================================
 // 1. 資料處理與 IO 工具 (Data & IO Tools)
@@ -17,7 +50,7 @@ function parseCSVLine(line) {
     if (cols.length < 5) return null;
 
     // 判斷遊戲類型
-const gameNameMap = {
+    const gameNameMap = {
         // 標準遊戲
         '大樂透': '大樂透', '威力彩': '威力彩', '今彩539': '今彩539',
         '雙贏彩': '雙贏彩', '3星彩': '3星彩', '4星彩': '4星彩',
@@ -49,11 +82,11 @@ const gameNameMap = {
     if (year < 1911) year += 1911;
     const dateStr = `${year}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
 
-// 解析號碼 (從第 6 欄開始，跳過銷售金額)
-const numbers = [];
-for (let i = 6; i < cols.length; i++) {  // ← 改成 6
-    if (/^\d+$/.test(cols[i])) numbers.push(parseInt(cols[i]));
-}
+    // 解析號碼 (從第 6 欄開始，跳過銷售金額)
+    const numbers = [];
+    for (let i = 6; i < cols.length; i++) {
+        if (/^\d+$/.test(cols[i])) numbers.push(parseInt(cols[i]));
+    }
 
     if (numbers.length < 2) return null;
 
@@ -76,26 +109,26 @@ for (let i = 6; i < cols.length; i++) {  // ← 改成 6
 
 // 下載並解壓縮 ZIP 檔
 export async function fetchAndParseZip(url) {
-    console.log(`📦 [ZIP] 開始下載: ${url}`);
+    if (DEBUG_MODE.SUMMARY) console.log(`📦 [ZIP] 開始下載: ${url}`);
     
     if (!window.JSZip) { 
-        console.error("❌ [ZIP] JSZip library not found"); 
+        if (DEBUG_MODE.ERROR) console.error("❌ [ZIP] JSZip library not found"); 
         return {}; 
     }
     
     try {
         const res = await fetch(url);
         if (!res.ok) {
-            console.error(`❌ [ZIP] HTTP 錯誤: ${url} - Status ${res.status}`);
+            if (DEBUG_MODE.ERROR) console.error(`❌ [ZIP] HTTP 錯誤: ${url} - Status ${res.status}`);
             return {};
         }
         
-        console.log(`✅ [ZIP] 下載完成: ${url}，開始解壓縮...`);
+        if (DEBUG_MODE.ZIP) console.log(`✅ [ZIP] 下載完成: ${url}，開始解壓縮...`);
         
         const blob = await res.blob();
         const zip = await window.JSZip.loadAsync(blob);
         
-        console.log(`📂 [ZIP] 解壓縮完成: ${url}，檔案數量: ${Object.keys(zip.files).length}`);
+        if (DEBUG_MODE.ZIP) console.log(`📂 [ZIP] 解壓縮完成: ${url}，檔案數量: ${Object.keys(zip.files).length}`);
         
         const zipData = {};
         let processedFiles = 0;
@@ -103,17 +136,18 @@ export async function fetchAndParseZip(url) {
         
         for (const filename of Object.keys(zip.files)) {
             if (filename.toLowerCase().endsWith('.csv') && !filename.startsWith('__')) {
-                console.log(`📄 [ZIP] 處理 CSV: ${filename}`);
+                if (DEBUG_MODE.ZIP) console.log(`📄 [ZIP] 處理 CSV: ${filename}`);
                 
                 const text = await zip.files[filename].async("string");
-const lines = text.split(/\r\n|\n/);
+                const lines = text.split(/\r\n|\n/);
 
-// 🔍 显示前 3 行内容（用于 Debug）
-console.log(`📝 [CSV内容] ${filename} 前 3 行:`, lines.slice(0, 3));
+                // Debug: 顯示前 3 行內容
+                if (DEBUG_MODE.CSV) {
+                    console.log(`📝 [CSV内容] ${filename} 前 3 行:`, lines.slice(0, 3));
+                }
 
-let validLines = 0;
-lines.forEach(line => {
-
+                let validLines = 0;
+                lines.forEach(line => {
                     const parsed = parseCSVLine(line);
                     if (parsed) {
                         if (!zipData[parsed.game]) zipData[parsed.game] = [];
@@ -122,49 +156,25 @@ lines.forEach(line => {
                     }
                 });
                 
-                console.log(`   ✓ ${filename}: ${validLines} 筆有效資料`);
+                if (DEBUG_MODE.ZIP) console.log(`  ✓ ${filename}: ${validLines} 筆有效資料`);
                 processedFiles++;
                 totalLines += validLines;
             }
         }
         
-        console.log(`📊 [ZIP] 解析完成: ${url}`, {
-            處理檔案數: processedFiles,
-            遊戲種類: Object.keys(zipData).length,
-            總筆數: totalLines,
-            遊戲列表: Object.keys(zipData)
-        });
+        // 摘要輸出（永遠顯示）
+        if (DEBUG_MODE.SUMMARY) {
+            console.log(`✅ [ZIP] 共處理 ${processedFiles} 檔案，${totalLines} 筆資料`);
+        }
         
         return zipData;
         
     } catch (e) {
-        console.error(`❌ [ZIP] 處理失敗: ${url}`, e);
+        if (DEBUG_MODE.ERROR) console.error(`❌ [ZIP] 處理失敗: ${url}`, e);
         return {};
     }
 }
 
-
-// 取得前端 API 需要的日期區間 (近3個月)
-function getApiDateRange() {
-    const today = new Date();
-    const endY = today.getFullYear();
-    const endM = today.getMonth() + 1;
-    
-    // 回推3個月 (包含本月) -> 減5
-    let startY = endY;
-    let startM = endM - 5;
-    
-    if (startM <= 0) {
-        startM += 12;
-        startY -= 1;
-    }
-    
-    const pad = (n) => n.toString().padStart(2, '0');
-    return {
-        startMonth: `${startY}-${pad(startM)}`,
-        endMonth: `${endY}-${pad(endM)}`
-    };
-}
 
 // 前端即時抓取 Live Data
 export async function fetchLiveLotteryData() {
@@ -192,7 +202,7 @@ export async function fetchLiveLotteryData() {
         monthsToFetch.push(yearMonth);
     }
 
-    console.log(`[Utils] 🔄 抓取資料: ${monthsToFetch.join(', ')}`);
+    if (DEBUG_MODE.SUMMARY) console.log(`🔄 [Utils] 抓取資料: ${monthsToFetch.join(', ')}`);
 
     // 修正 contentKey 函數
     const getContentKey = (code) => {
@@ -216,13 +226,13 @@ export async function fetchLiveLotteryData() {
                 const contentKey = getContentKey(code);
                 const records = json.content[contentKey] || [];
                 
-                if (records.length > 0) {
+                if (DEBUG_MODE.API && records.length > 0) {
                     console.log(`✅ [${gameName}] ${month}: ${records.length} 筆`);
                 }
                 
                 return records;
             } catch (e) {
-                console.warn(`⚠️ [${gameName}] ${month} 失敗`);
+                if (DEBUG_MODE.API) console.warn(`⚠️ [${gameName}] ${month} 失敗`);
                 return [];
             }
         });
@@ -240,11 +250,8 @@ export async function fetchLiveLotteryData() {
                 liveData[gameName].push({
                     date: dateStr,
                     period: String(item.period),
-                    // 核心修改：確保 numbers 預設為 drawNumberAppear (開出順序)
-                    // 如果沒有开出顺序，才用大小顺序
                     numbers: numsAppear.length > 0 ? numsAppear : numsSize,
                     numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-                    // [新增] 抓取累積獎金 (totalAmount)
                     jackpot: item.totalAmount || 0,
                     source: 'live_api'
                 });
@@ -253,7 +260,7 @@ export async function fetchLiveLotteryData() {
 
         // 備援：如果逐月查詢失敗，嘗試區間查詢
         if (allRecords.length === 0) {
-            console.log(`🔄 [${gameName}] 逐月無資料，嘗試區間查詢...`);
+            if (DEBUG_MODE.API) console.log(`🔄 [${gameName}] 逐月無資料，嘗試區間查詢...`);
             try {
                 const startMonth = monthsToFetch[monthsToFetch.length - 1];
                 const endMonth = monthsToFetch[0];
@@ -266,7 +273,7 @@ export async function fetchLiveLotteryData() {
                     const records = json.content[contentKey] || [];
 
                     if (records.length > 0) {
-                        console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆`);
+                        if (DEBUG_MODE.API) console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆`);
                         
                         records.forEach(item => {
                             const dateStr = item.lotteryDate.split('T')[0];
@@ -279,7 +286,6 @@ export async function fetchLiveLotteryData() {
                                     period: String(item.period),
                                     numbers: numsAppear.length > 0 ? numsAppear : numsSize,
                                     numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-                                    // [新增] 抓取累積獎金 (totalAmount) - 這是備援區塊
                                     jackpot: item.totalAmount || 0,
                                     source: 'live_api'
                                 });
@@ -288,8 +294,13 @@ export async function fetchLiveLotteryData() {
                     }
                 }
             } catch (e) {
-                console.warn(`⚠️ [${gameName}] 區間查詢失敗`);
+                if (DEBUG_MODE.API) console.warn(`⚠️ [${gameName}] 區間查詢失敗`);
             }
+        }
+        
+        // 摘要輸出（每遊戲一行）
+        if (DEBUG_MODE.SUMMARY && liveData[gameName].length > 0) {
+            console.log(`✅ [${gameName}] 2 個月共 ${liveData[gameName].length} 筆`);
         }
     }
     
@@ -298,8 +309,9 @@ export async function fetchLiveLotteryData() {
 
 
 
-// 合併多重來源資料 (Base + ZIPs + Live + Firestore)
-export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) {
+// 合併多重來源資料 (Base + ZIPs + Live)
+// 注意：已移除 Firestore，只處理 3 個來源
+export function mergeLotteryData(baseData, zipResults, liveData) {
     const merged = { ...baseData.games }; // 淺拷貝
 
     // 1. 合併 ZIP 資料
@@ -318,29 +330,15 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
         }
     }
 
-    // 3. 合併 Firestore Data (個人補完或歷史紀錄)
-    if (firestoreData) {
-         for (const [game, rows] of Object.entries(firestoreData)) {
-            if (!merged[game]) merged[game] = [];
-            merged[game] = [...merged[game], ...rows];
-        }
-    }
-
-    // 4. 去重與排序（修正：使用優先權比較）
+    // 3. 去重與排序（簡化：Live API > ZIP/Base）
     for (const game in merged) {
         const unique = new Map();
-        
-        // 定義優先權（數字越大越優先）
-        const priority = { 'live_api': 3, 'firestore': 2, 'history_zip': 1 };
         
         merged[game].forEach(item => {
             const key = `${item.date instanceof Date ? item.date.toISOString().split('T')[0] : item.date}-${item.period}`;
             
-            // 比較優先權，後來的優先權 >= 既有的就覆蓋
-            const existingPriority = unique.has(key) ? priority[unique.get(key).source] || 0 : 0;
-            const newPriority = priority[item.source] || 0;
-            
-            if (newPriority >= existingPriority) {
+            // 簡單規則：Live API 優先（source === 'live_api'）
+            if (!unique.has(key) || item.source === 'live_api') {
                 unique.set(key, item);
             }
         });
@@ -356,7 +354,7 @@ export function mergeLotteryData(baseData, zipResults, liveData, firestoreData) 
     return { games: merged };
 }
 
-// LocalStorage 快取
+// LocalStorage 快取（保留：用於加速二次載入 + 離線支援）
 export function saveToCache(data) {
     try {
         localStorage.setItem('lottery_live_cache', JSON.stringify({
@@ -372,112 +370,6 @@ export function loadFromCache() {
         if (!raw) return null;
         return JSON.parse(raw);
     } catch (e) { return null; }
-}
-
-// Firestore 存取 (包含重複檢查)
-export async function saveToFirestore(db, newData) {
-    if (!db || !window.firebaseModules) return;
-    const { doc, getDoc, setDoc } = window.firebaseModules;
-    
-    // 只寫入 'live_api' 來源的資料
-    for (const [game, rows] of Object.entries(newData)) {
-        for (const row of rows) {
-            if (row.source === 'live_api') {
-                const docId = `${row.date}_${row.period}`;
-                const ref = doc(db, 'artifacts', 'lottery-app', 'public_data', `${game}_${docId}`);
-                
-                try {
-                    // [Optimization] 先檢查是否存在，避免重複寫入浪費額度
-                    const snap = await getDoc(ref);
-if (!snap.exists()) {
-    await setDoc(ref, {
-        ...row,
-        game: game  // 新增遊戲名稱欄位
-    });
-    console.log(`[Firestore] New record saved: ${game} ${row.period}`);
-}
-
-                } catch (e) {
-                    console.error("Firestore Save Error:", e);
-                }
-            }
-        }
-    }
-}
-
-export async function loadFromFirestore(db) {
-    if (!db || !window.firebaseModules) return {};
-    
-    const { collection, getDocs, query, where, orderBy, limit } = window.firebaseModules;
-    
-    try {
-        console.log("🔄 [Firestore] 正在載入快取資料...");
-        
-        const twoMonthsAgo = new Date();
-        twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-        const dateThreshold = twoMonthsAgo.toISOString().split('T')[0];
-        
-        const gamesList = ['大樂透', '威力彩', '今彩539', '雙贏彩', '3星彩', '4星彩'];
-        
-        // 🚀 並行查詢所有遊戲（不用等待）
-        const queryPromises = gamesList.map(async (gameName) => {
-            try {
-                const colRef = collection(db, 'artifacts/lottery-app/public_data');
-                const q = query(
-                    colRef,
-                    where('game', '==', gameName),
-                    orderBy('date', 'desc'),
-                    limit(100)
-                );
-                
-                const snapshot = await getDocs(q);
-                
-                if (!snapshot.empty) {
-                    const gameData = [];
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        if (data.date >= dateThreshold) {
-                            gameData.push({
-                                date: data.date,
-                                period: data.period,
-                                numbers: data.numbers || [],
-                                numbers_size: data.numbers_size || [],
-                                source: 'firestore'
-                            });
-                        }
-                    });
-                    
-                    console.log(`✅ [Firestore] ${gameName}: ${gameData.length} 筆`);
-                    return { game: gameName, data: gameData };
-                }
-                return { game: gameName, data: [] };
-            } catch (e) {
-                if (e.code === 'failed-precondition') {
-                    console.error(`❌ [Firestore] ${gameName} 需要建立索引`);
-                } else {
-                    console.warn(`⚠️ [Firestore] ${gameName} 讀取失敗:`, e.message);
-                }
-                return { game: gameName, data: [] };
-            }
-        });
-        
-        // 等待所有查詢完成
-        const results = await Promise.all(queryPromises);
-        
-        // 組合結果
-        const gamesData = {};
-        results.forEach(result => {
-            if (result.data.length > 0) {
-                gamesData[result.game] = result.data;
-            }
-        });
-        
-        return gamesData;
-        
-    } catch (e) {
-        console.warn("⚠️ [Firestore] 整體讀取失敗:", e);
-        return {};
-    }
 }
 
 
