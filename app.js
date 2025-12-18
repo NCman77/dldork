@@ -439,7 +439,7 @@ async initFetch() {
     }
 
     this.renderGameButtons();
-}
+},
 
     processAndRender(mergedData) {
         this.state.rawData = mergedData.games || {};
@@ -1150,6 +1150,7 @@ async initFetch() {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
