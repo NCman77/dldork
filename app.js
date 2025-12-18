@@ -22,7 +22,7 @@ import { algoPattern } from './algo/algo_pattern.js';
 import { algoBalance } from './algo/algo_balance.js';
 import { algoAI } from './algo/algo_ai.js';
 // [Fix] 重新命名 import 以避免與 App 方法名稱衝突
-import { algoSmartWheel as generateSmartWheel } from './algo/algo_smartwheel.js';
+
 
 // 五行學派子系統（紫微 / 姓名 / 星盤 / 五行生肖）
 import { applyZiweiLogic } from './algo/algo_Ziwei.js';
@@ -893,7 +893,30 @@ async initFetch() {
             }
             return; // 結束執行
         }
-
+        // [Fix] AI 學派 V7.0 的直通車邏輯
+        if (school === 'ai' && isPack) {
+            const params = {
+                data,
+                gameDef,
+                subModeId: this.state.currentSubMode,
+                excludeNumbers: [],
+                random: isRandom,
+                mode: isRandom ? 'random' : 'strict',
+                packMode: mode,
+                targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5
+            };
+            
+            const results = algoAI(params);
+            
+            if (Array.isArray(results)) {
+                results.forEach((res, idx) => {
+                    this.renderRow(res, idx + 1, `<span class="text-amber-600 font-bold">🤖 AI包牌 ${idx + 1}</span>`);
+                });
+            } else {
+                this.renderRow(results, 1);
+            }
+            return; // 不進 SmartWheel
+        }
         // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
         
         const count = isPack ? 3 : 5; // 包牌先跑3輪湊池，一般跑5注
@@ -949,12 +972,14 @@ async initFetch() {
             }
         }
 
-        // 包牌模式的後續處理 (其他學派使用 SmartWheel)
+                // 包牌模式的後續處理（已廢除 SmartWheel，所有學派都應該自己處理包牌）
         if (isPack) {
-            const finalPool = [...new Set(packPool)].slice(0, 12).sort((a,b)=>a-b);
-            this.algoSmartWheel(data, gameDef, finalPool, mode);
+            // 如果執行到這裡，表示該學派尚未實作包牌直通車
+            const container = document.getElementById('prediction-output');
+            container.innerHTML = '<div class="p-4 text-center text-stone-400">此學派尚未支援包牌策略</div>';
         }
     },
+
 
     // 五行學派：統籌紫微 / 星盤 / 姓名 / 生肖 的權重疊加
     algoWuxing({ gameDef }) {
@@ -1008,28 +1033,7 @@ async initFetch() {
         };
     },
 
-    // [Fix] App 內部的 SmartWheel 包裝器 (避免命名衝突)
-    algoSmartWheel(data, gameDef, pool, packMode) {
-        // 使用重新命名的 imported function: generateSmartWheel
-        const results = generateSmartWheel(data, gameDef, pool, packMode);
-        
-        if (!results || results.length === 0) {
-            document.getElementById('prediction-output').innerHTML = 
-                '<div class="p-4 text-center text-stone-400">此玩法暫不支援包牌策略</div>';
-            return;
-        }
 
-        results.forEach((res, idx) =>
-            this.renderRow(
-                {
-                    numbers: res.numbers.map(n => ({ val: n, tag: '包牌' })),
-                    groupReason: res.groupReason
-                },
-                idx + 1,
-                `<span class="text-purple-600 font-bold">🛍️ 包牌組合 ${idx+1}</span>`
-            )
-        );
-    },
 
     renderRow(resultObj, index, label = null) {
         const container = document.getElementById('prediction-output');
@@ -1150,6 +1154,7 @@ async initFetch() {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
