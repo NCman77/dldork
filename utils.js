@@ -2,11 +2,12 @@
  * utils.js
  * 全功能工具箱：包含數學運算、統計邏輯、命理轉換，以及資料讀取與 API 連線 (Scheme B)
  * 
- * Final Version（移除 Firestore）：
+ * Final Version（移除 Firestore + 修正 Fallback）：
  * - P0: 移除所有 Firestore 相關功能
+ * - P0: 修正 fallback 日期過濾（防止資料膨脹）
  * - P1: DEBUG_MODE（URL 參數 + 開發環境限定）
  * - P1: Log 優化（摘要模式）
- * - 保留：LocalStorage 快取（加速二次載入）
+ * - P1: LocalStorage 錯誤處理改善
  */
 
 // ==========================================
@@ -176,7 +177,7 @@ export async function fetchAndParseZip(url) {
 }
 
 
-// 前端即時抓取 Live Data
+// 前端即時抓取 Live Data（已修正：fallback 加上日期過濾）
 export async function fetchLiveLotteryData() {
     const GAMES = {
         'Lotto649': 'Lotto649', 'SuperLotto638': 'SuperLotto638',
@@ -193,7 +194,7 @@ export async function fetchLiveLotteryData() {
         '3D': '3星彩', '4D': '4星彩'
     };
 
-    // 產生月份清單（往前推 2 個月，加速）
+    // 產生月份清單（往前推 2 個月）
     const today = new Date();
     const monthsToFetch = [];
     for (let i = 0; i < 2; i++) {
@@ -201,6 +202,11 @@ export async function fetchLiveLotteryData() {
         const yearMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
         monthsToFetch.push(yearMonth);
     }
+
+    // ★ P0 修正：計算日期門檻（用於 fallback 過濾）
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const dateThreshold = twoMonthsAgo.toISOString().split('T')[0];
 
     if (DEBUG_MODE.SUMMARY) console.log(`🔄 [Utils] 抓取資料: ${monthsToFetch.join(', ')}`);
 
@@ -273,24 +279,35 @@ export async function fetchLiveLotteryData() {
                     const records = json.content[contentKey] || [];
 
                     if (records.length > 0) {
-                        if (DEBUG_MODE.API) console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆`);
+                        if (DEBUG_MODE.API) console.log(`✅ [${gameName}] 區間查詢: ${records.length} 筆（過濾前）`);
                         
+                        // ★ P0 修正：過濾日期，只保留近 2 個月
+                        let filteredCount = 0;
                         records.forEach(item => {
                             const dateStr = item.lotteryDate.split('T')[0];
-                            const numsSize = item.drawNumberSize || [];
-                            const numsAppear = item.drawNumberAppear || [];
                             
-                            if (numsSize.length > 0 || numsAppear.length > 0) {
-                                liveData[gameName].push({
-                                    date: dateStr,
-                                    period: String(item.period),
-                                    numbers: numsAppear.length > 0 ? numsAppear : numsSize,
-                                    numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
-                                    jackpot: item.totalAmount || 0,
-                                    source: 'live_api'
-                                });
+                            // 只保留 >= dateThreshold 的資料
+                            if (dateStr >= dateThreshold) {
+                                const numsSize = item.drawNumberSize || [];
+                                const numsAppear = item.drawNumberAppear || [];
+                                
+                                if (numsSize.length > 0 || numsAppear.length > 0) {
+                                    liveData[gameName].push({
+                                        date: dateStr,
+                                        period: String(item.period),
+                                        numbers: numsAppear.length > 0 ? numsAppear : numsSize,
+                                        numbers_size: numsSize.length > 0 ? numsSize : numsAppear,
+                                        jackpot: item.totalAmount || 0,
+                                        source: 'live_api'
+                                    });
+                                    filteredCount++;
+                                }
                             }
                         });
+                        
+                        if (DEBUG_MODE.API) {
+                            console.log(`✅ [${gameName}] 區間查詢: ${filteredCount} 筆（過濾後，門檻: ${dateThreshold}）`);
+                        }
                     }
                 }
             } catch (e) {
@@ -354,22 +371,59 @@ export function mergeLotteryData(baseData, zipResults, liveData) {
     return { games: merged };
 }
 
-// LocalStorage 快取（保留：用於加速二次載入 + 離線支援）
+// ★ P1 改善：LocalStorage 快取（錯誤處理從靜默改為警告）
 export function saveToCache(data) {
     try {
-        localStorage.setItem('lottery_live_cache', JSON.stringify({
+        const cacheData = {
             timestamp: Date.now(),
             data: data
-        }));
-    } catch (e) {}
+        };
+        
+        const jsonStr = JSON.stringify(cacheData);
+        
+        // 可選：檢查大小（警告用戶）
+        const sizeKB = new Blob([jsonStr]).size / 1024;
+        if (DEBUG_MODE.SUMMARY && sizeKB > 1000) {
+            console.log(`💾 [Cache] 快取大小: ${sizeKB.toFixed(0)} KB`);
+        }
+        
+        if (sizeKB > 4000) {
+            console.warn(`⚠️ [Cache] 快取過大 (${sizeKB.toFixed(0)} KB)，可能超過 LocalStorage 5MB 上限`);
+        }
+        
+        localStorage.setItem('lottery_live_cache', jsonStr);
+        
+        if (DEBUG_MODE.SUMMARY) {
+            console.log(`✅ [Cache] 已儲存快取 (${sizeKB.toFixed(0)} KB)`);
+        }
+        
+    } catch (e) {
+        // ★ 改善：從靜默改為明確警告
+        if (DEBUG_MODE.ERROR) {
+            console.error(`❌ [Cache] LocalStorage 寫入失敗（可能超過 5MB 上限或被瀏覽器阻擋）`, e);
+        }
+    }
 }
 
 export function loadFromCache() {
     try {
         const raw = localStorage.getItem('lottery_live_cache');
         if (!raw) return null;
-        return JSON.parse(raw);
-    } catch (e) { return null; }
+        
+        const parsed = JSON.parse(raw);
+        
+        if (DEBUG_MODE.SUMMARY) {
+            const age = Math.floor((Date.now() - parsed.timestamp) / 1000 / 60);
+            console.log(`📂 [Cache] 載入快取（${age} 分鐘前）`);
+        }
+        
+        return parsed;
+    } catch (e) { 
+        if (DEBUG_MODE.ERROR) {
+            console.error(`❌ [Cache] LocalStorage 讀取失敗`, e);
+        }
+        return null; 
+    }
 }
 
 
