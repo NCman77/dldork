@@ -5,10 +5,15 @@
  */
 
 import { GAME_CONFIG } from './game_config.js';
-import {
-    getGanZhi, monteCarloSim, calculateZone,
-    fetchAndParseZip, mergeLotteryData, fetchLiveLotteryData,
-    saveToCache, saveToFirestore, loadFromFirestore, loadFromCache
+import { 
+    getGanZhi, 
+    monteCarloSim, 
+    calculateZone, 
+    fetchAndParseZip, 
+    mergeLotteryData, 
+    fetchLiveLotteryData, 
+    saveToCache, 
+    loadFromCache 
 } from './utils.js';
 
 // 學派演算法（統計 / 關聯 / 平衡 / AI）
@@ -377,103 +382,64 @@ const App = {
     },
 
     // ================= 核心資料載入流程 =================
-    async initFetch() {
-        this.setSystemStatus('loading');
-
-        try {
-            // Phase 0：Firebase 快取
-            if (this.state.db) {
-                try {
-                    const fbData = await loadFromFirestore(this.state.db);
-                    if (fbData && Object.keys(fbData).length > 0) {
-                        const quickData = mergeLotteryData({ games: {} }, [], fbData, null);
-                        this.processAndRender(quickData);
-                    }
-                } catch (e) {
-                    console.warn("Firebase 快取讀取失敗，改用完整載入", e);
-                }
+async initFetch() {
+    this.setSystemStatus('loading');
+    try {
+        // ========== Phase 1：載入 JSON + ZIP + Local Cache ==========
+        const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
+        let baseData = {};
+        if (jsonRes.ok) {
+            const jsonData = await jsonRes.json();
+            baseData = jsonData.games || jsonData;
+            this.state.rawJackpots = jsonData.jackpots || {};
+            if (jsonData.last_updated) {
+                document.getElementById('last-update-time').innerText = jsonData.last_updated.split(' ')[0];
             }
-
-            // Phase 1：靜態 JSON + ZIP + Local Cache + Firestore
-            const jsonRes = await fetch(`${CONFIG.JSON_URL}?t=${new Date().getTime()}`);
-            let baseData = {};
-            if (jsonRes.ok) {
-                const jsonData = await jsonRes.json();
-                baseData = jsonData.games || jsonData;
-                this.state.rawJackpots = jsonData.jackpots || {};
-                if (jsonData.last_updated) {
-                    document.getElementById('last-update-time').innerText =
-                        jsonData.last_updated.split(' ')[0];
-                }
-            }
-
-            const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
-                try {
-                    return await fetchAndParseZip(url);
-                } catch (e) {
-                    console.warn(`ZIP 載入失敗: ${url}`, e);
-                    return {};
-                }
-            });
-            const zipResults = await Promise.all(zipPromises);
-
-            const localCache = loadFromCache()?.data || {};
-            let firestoreData = {};
-            if (this.state.db) {
-                firestoreData = await loadFromFirestore(this.state.db);
-            }
-
-            const initialData = mergeLotteryData(
-                { games: baseData },
-                zipResults,
-                localCache,
-                firestoreData
-            );
-            this.processAndRender(initialData);
-
-            // Phase 2：Live API
-            const liveData = await fetchLiveLotteryData();
-
-            if (liveData && Object.keys(liveData).length > 0) {
-                // [新增邏輯] 從 Live Data 更新累積獎金 (取最新一期的 jackpot)
-                for (const game in liveData) {
-                    if (liveData[game].length > 0) {
-                        // 確保排序是新的在前面
-                        const sorted = liveData[game].sort((a, b) => new Date(b.date) - new Date(a.date));
-                        const latest = sorted[0];
-                        if (latest.jackpot && latest.jackpot > 0) {
-                            this.state.rawJackpots[game] = latest.jackpot;
-                        }
-                    }
-                }
-
-                const finalData = mergeLotteryData(
-                    { games: baseData },
-                    zipResults,
-                    liveData,
-                    firestoreData
-                );
-                this.processAndRender(finalData);
-                if (this.state.currentGame) {
-                    this.updateDashboard();
-                }
-                try {
-                    saveToCache(liveData);
-                } catch (e) {
-                    console.warn("Local Cache 寫入失敗:", e);
-                }
-                if (this.state.db) {
-                    saveToFirestore(this.state.db, liveData)
-                        .catch(e => console.warn("Firestore 寫入失敗:", e));
-                }
-            }
-
-            this.checkSystemStatus();
-        } catch (e) {
-            console.error("Critical Data Error:", e);
-            this.checkSystemStatus();
-            this.renderGameButtons();
         }
+
+        const zipPromises = CONFIG.ZIP_URLS.map(async (url) => {
+            try { return await fetchAndParseZip(url); }
+            catch (e) { console.warn("ZIP 下載失敗:", url, e); return {}; }
+        });
+        const zipResults = await Promise.all(zipPromises);
+
+        const localCache = loadFromCache()?.data;
+
+        const initialData = mergeLotteryData({ games: baseData }, zipResults, localCache);
+        this.processAndRender(initialData);
+
+        // ========== Phase 2：呼叫 Live API + 更新彩金 ==========
+        const liveData = await fetchLiveLotteryData();
+        if (liveData && Object.keys(liveData).length > 0) {
+            // Live Data 才有 jackpot，取最新一筆更新
+            for (const game in liveData) {
+                if (liveData[game].length > 0) {
+                    const sorted = liveData[game].sort((a, b) => new Date(b.date) - new Date(a.date));
+                    const latest = sorted[0];
+                    if (latest.jackpot && latest.jackpot > 0) {
+                        this.state.rawJackpots[game] = latest.jackpot;
+                    }
+                }
+            }
+
+            const finalData = mergeLotteryData({ games: baseData }, zipResults, liveData);
+            this.processAndRender(finalData);
+            if (this.state.currentGame) this.updateDashboard();
+
+            // 存 local cache（加速二次載入 + 離線支援）
+            try { saveToCache(liveData); } 
+            catch (e) { console.warn("Local Cache 寫入失敗", e); }
+        }
+
+        this.checkSystemStatus();
+
+    } catch (e) {
+        console.error("Critical Data Error:", e);
+        this.checkSystemStatus();
+    }
+
+    this.renderGameButtons();
+}
     },
 
     processAndRender(mergedData) {
@@ -1185,6 +1151,7 @@ const App = {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
