@@ -51,11 +51,11 @@ const App = {
         profiles: [], user: null, db: null, apiKey: "",
         drawOrder: 'size', // 預設用大小順序顯示
         lastStrictResults: {
-            lotto: { pattern: [], ai: [] },
-            power: { pattern: [], ai: [] },
-            today: { pattern: [], ai: [] },
-            digit3: { pattern: [], ai: [] },
-            digit4: { pattern: [], ai: [] }
+            '大樂透': { pattern: [], ai: [] },
+            '威力彩': { pattern: [], ai: [] },
+            '今彩539': { pattern: [], ai: [] },
+            '3星彩': { pattern: [], ai: [] },
+            '4星彩': { pattern: [], ai: [] }
         }
     },
 
@@ -876,12 +876,97 @@ async initFetch() {
 
         // [Fix] 針對關聯學派(Pattern) V6.1 的直通車邏輯
         if (school === 'pattern' && isPack) {
-            this.renderComboSelector(gameDef, 'pattern', mode);
+            // 只有特定玩法和模式才用卡片選擇
+            const needCardSelector = (
+                mode === 'pack_1' && 
+                ['威力彩', '3星彩', '4星彩'].includes(gameName)
+            );
+            
+            if (needCardSelector) {
+                this.renderComboSelector(gameDef, 'pattern', mode);
+                return;
+            }
+            
+            // 其他包牌照舊（保留原本的 prompt 邏輯）
+            let selectedCombo = null;
+            if (this.state.lastStrictResults.length > 1) {
+                const options = this.state.lastStrictResults
+                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
+                    .join('\n');
+                const choice = prompt(`${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
+                const num = parseInt(choice);
+                if (num >= 1 && num <= this.state.lastStrictResults.length) {
+                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
+                }
+            }
+            
+            const params = {
+                data,
+                gameDef,
+                subModeId: this.state.currentSubMode,
+                excludeNumbers: new Set(),
+                mode: 'strict',
+                packMode: mode,
+                targetCount: 5,
+                selectedCombo
+            };
+            
+            const results = algoPattern(params);
+            if (Array.isArray(results)) {
+                results.forEach((res, idx) => {
+                    this.renderRow(res, idx + 1, `<span class="text-purple-600 font-bold">🎯 關聯包牌 ${idx + 1}</span>`);
+                });
+            } else {
+                this.renderRow(results, 1);
+            }
             return; // 結束執行
         }
         // [Fix] AI 學派 V7.0 的直通車邏輯
         if (school === 'ai' && isPack) {
-            this.renderComboSelector(gameDef, 'ai', mode);
+            // 只有特定玩法和模式才用卡片選擇
+            const needCardSelector = (
+                mode === 'pack_1' && 
+                ['威力彩', '3星彩', '4星彩'].includes(gameName)
+            );
+            
+            if (needCardSelector) {
+                this.renderComboSelector(gameDef, 'ai', mode);
+                return;
+            }
+            
+            // 其他包牌照舊（保留原本的 prompt 邏輯）
+            let selectedCombo = null;
+            if (this.state.lastStrictResults.length > 1) {
+                const options = this.state.lastStrictResults
+                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
+                    .join('\n');
+                const choice = prompt(`${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
+                const num = parseInt(choice);
+                if (num >= 1 && num <= this.state.lastStrictResults.length) {
+                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
+                }
+            }
+            
+            const params = {
+                data,
+                gameDef,
+                subModeId: this.state.currentSubMode,
+                excludeNumbers: [],
+                random: false,
+                mode: false ? 'random' : 'strict',
+                packMode: mode,
+                targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5,
+                selectedCombo
+            };
+            
+            const results = algoAI(params);
+            if (Array.isArray(results)) {
+                results.forEach((res, idx) => {
+                    this.renderRow(res, idx + 1, `<span class="text-amber-600 font-bold">🤖 AI包牌 ${idx + 1}</span>`);
+                });
+            } else {
+                this.renderRow(results, 1);
+            }
             return; // 不進 SmartWheel
         }
         // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
@@ -1075,10 +1160,10 @@ async initFetch() {
         container.innerHTML += html;
     },
 
-    // 卡片選擇 UI：讓用戶從嚴選結果選擇基準組合
+    // 【修改 4】卡片選擇 UI：讓用戶從嚴選結果選擇基準組合
     renderComboSelector(gameDef, school, packMode) {
         const data = this.state.rawData[this.state.currentGame] || [];
-        const gameKey = this.state.currentGame;
+        const gameKey = this.state.currentGame;  // 中文 key：'威力彩', '3星彩', '4星彩'
         
         // 檢查當前遊戲和學派的嚴選結果
         if (!this.state.lastStrictResults[gameKey] || 
@@ -1130,7 +1215,7 @@ async initFetch() {
         let html = `
           <div class="combo-selector">
             <div class="selector-title">🎯 請選擇基準組合</div>
-            <div class="combo-cards">
+            <div class="combo-cards" id="combo-cards-container">
         `;
         
         results.forEach((result, index) => {
@@ -1140,7 +1225,7 @@ async initFetch() {
                 .join('');
             
             html += `
-              <div class="combo-card" onclick="app.selectCombo(${index}, '${school}', '${packMode}', '${gameDef.type}')">
+              <div class="combo-card" data-index="${index}" data-school="${school}" data-packmode="${packMode}" data-gametype="${gameDef.type}">
                 <div class="card-label">${label}</div>
                 <div class="card-numbers">${numbersHtml}</div>
               </div>
@@ -1153,11 +1238,25 @@ async initFetch() {
         `;
         
         container.innerHTML = html;
+        
+        // 【修改 6】手機版優化：使用 addEventListener 綁定事件
+        setTimeout(() => {
+            const cards = document.querySelectorAll('.combo-card');
+            cards.forEach(card => {
+                card.addEventListener('click', () => {
+                    const index = parseInt(card.dataset.index);
+                    const school = card.dataset.school;
+                    const packMode = card.dataset.packmode;
+                    const gameType = card.dataset.gametype;
+                    this.selectCombo(index, school, packMode, gameType);
+                });
+            });
+        }, 0);
     },
 
-    // 選擇組合並執行包牌
+    // 【修改 5】選擇組合並執行包牌
     selectCombo(index, school, packMode, gameType) {
-        const gameKey = this.state.currentGame;
+        const gameKey = this.state.currentGame;  // 中文 key
         const selectedCombo = this.state.lastStrictResults[gameKey][school][index].numbers.map(n => n.val);
         const gameDef = GAME_CONFIG.GAMES[this.state.currentGame];
         const data = this.state.rawData[this.state.currentGame] || [];
@@ -1248,7 +1347,7 @@ async initFetch() {
 };
 
 
-// 注入卡片選擇器樣式
+// 【修改 6】注入卡片選擇器樣式（含手機版觸控優化）
 if (!document.getElementById('combo-selector-style')) {
     document.head.insertAdjacentHTML('beforeend', `
         <style id="combo-selector-style">
@@ -1285,6 +1384,9 @@ if (!document.getElementById('combo-selector-style')) {
                 display: flex;
                 align-items: center;
                 gap: 12px;
+                min-height: 44px;  /* iOS 最小觸控區域 */
+                touch-action: manipulation;  /* 禁用雙擊縮放，提升觸控響應 */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);  /* 移除 iOS 點擊高亮 */
             }
 
             .combo-card:hover {
@@ -1296,6 +1398,7 @@ if (!document.getElementById('combo-selector-style')) {
 
             .combo-card:active {
                 transform: translateY(0);
+                background: #dcfce7;  /* 按下時的視覺回饋 */
             }
 
             .card-label {
@@ -1323,14 +1426,20 @@ if (!document.getElementById('combo-selector-style')) {
                 }
 
                 .combo-card {
-                    padding: 12px;
+                    padding: 14px;
                     flex-direction: column;
                     align-items: flex-start;
+                    min-height: 56px;  /* 手機版更大的觸控區域 */
                 }
 
                 .card-label {
                     min-width: auto;
                     text-align: left;
+                    font-size: 13px;
+                }
+
+                .card-numbers {
+                    width: 100%;
                 }
             }
         </style>
