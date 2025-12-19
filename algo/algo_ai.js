@@ -434,7 +434,17 @@ function ai_handleComboSingle({ data, gameDef, excludeNumbers, random, mode, set
         log(`隨機模式 | TopN: ${topN} | 溫度: ${temp.toFixed(2)}`);
     } else {
         combo = candidates.slice(0, gameDef.count);
-    }
+            // 🔍 診斷 Log 3
+    console.log('🎲 [隨機生成]', { 
+        setIndex,
+        topNOptions,
+        選中topN: topN,
+        溫度: temp.toFixed(2),
+        候選池大小: topCandidates.length,
+        前5候選: topCandidates.slice(0, 5).map(n => `${n}:${Math.round(scores[n])}分`),
+        最終選號: combo
+    });
+}
     
     return {
         numbers: combo.sort((a, b) => a - b).map(n => ({ val: n, tag: `趨勢分${Math.round(scores[n])}` })),
@@ -749,3 +759,4 @@ function ai_arrayToScoreMap(arr, scoreMap) {
     });
     return result;
 }
+
