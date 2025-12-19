@@ -34,7 +34,9 @@ const AI_CONFIG = {
             h_long: 50,
             epsilon: 1,
             kPrior: 5,
-            temperature: 0.7
+            temperature: 0.7,
+        topNRange: [10, 15, 20, 30, 50],
+        tempRange: [0.8, 1.5]
         },
         power_zone1: {
             h_short: 8,
@@ -331,16 +333,21 @@ function ai_packCombo({ data, gameDef, packMode, targetCount, mode }) {
     const sortedNums = Object.keys(scores).map(Number).sort((a, b) => scores[b] - scores[a]);
     
     if (packMode === 'pack_1') {
-        // 輪轉組合
+        // 降權策略
+        const currentScores = { ...scores };  // 複製分數物件
+
         for (let i = 0; i < targetCount; i++) {
-            const offset = i * Math.floor(sortedNums.length / targetCount);
-            const rotated = [...sortedNums.slice(offset), ...sortedNums.slice(0, offset)];
-            const combo = ai_pickTopNumbers(ai_arrayToScoreMap(rotated, scores), gameDef.count, new Set());
-            
+            const combo = ai_pickTopNumbers(currentScores, gameDef.count, new Set());
+
             tickets.push({
                 numbers: combo.map(n => ({ val: n, tag: `趨勢分${scores[n] || 50}` })),
-                groupReason: `樂透包牌 ${i + 1}/${targetCount} - 輪轉策略`,
+                groupReason: `樂透包牌 ${i + 1}/${targetCount} - 降權策略`,
                 metadata: { version: '7.0', packMode: 'pack_1' }
+            });
+
+            // 降權已選號碼
+            combo.forEach(n => {
+                currentScores[n] *= 0.3;
             });
         }
     } else {
@@ -384,7 +391,16 @@ function ai_handleComboSingle({ data, gameDef, excludeNumbers, random, mode, set
     
     let combo;
     if (random) {
-        combo = ai_softmaxSample(candidates.map(n => ({ num: n, score: scores[n] })), AI_CONFIG.PARAMS.lotto.temperature, gameDef.count);
+        const params = AI_CONFIG.PARAMS.lotto;
+        const topNOptions = params.topNRange;
+        const topN = topNOptions[setIndex % topNOptions.length];
+
+        const tempMin = params.tempRange[0];
+        const tempMax = params.tempRange[1];
+        const temperature = tempMin + Math.random() * (tempMax - tempMin);
+
+        const topCandidates = candidates.slice(0, topN);
+        combo = ai_softmaxSample(topCandidates.map(n => ({ num: n, score: scores[n] })), temperature, gameDef.count);
     } else {
         combo = candidates.slice(0, gameDef.count);
     }
