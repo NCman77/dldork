@@ -944,7 +944,6 @@ for (let i = 0; i < count; i++) {
             mode: params.mode, 
             setIndex: params.setIndex
         });
-    }
             let result = null;
 
             switch (school) {
@@ -1165,5 +1164,6 @@ for (let i = 0; i < count; i++) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
