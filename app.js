@@ -893,8 +893,10 @@ async initFetch() {
             }
             return; // 結束執行
         }
-        // [Fix] AI 學派 V7.0 的直通車邏輯
-        if (school === 'ai' && isPack) {
+// [Fix] AI 學派 V7.0 的直通車邏輯
+if (school === 'ai' && isPack) {
+    // 🔍 診斷 Log 1
+    console.log('🎯 [包牌直通車] 執行中', { school, isPack, mode });
             const params = {
                 data,
                 gameDef,
@@ -1154,6 +1156,7 @@ async initFetch() {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
