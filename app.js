@@ -49,7 +49,8 @@ const App = {
         currentSchool: "balance",
         filterPeriod: "", filterYear: "", filterMonth: "",
         profiles: [], user: null, db: null, apiKey: "",
-        drawOrder: 'size' // 預設用大小順序顯示
+        drawOrder: 'size', // 預設用大小順序顯示
+        lastStrictResults: []
     },
 
     init() {
@@ -869,6 +870,18 @@ async initFetch() {
 
         // [Fix] 針對關聯學派(Pattern) V6.1 的直通車邏輯
         if (school === 'pattern' && isPack) {
+            let selectedCombo = null;
+            if (this.state.lastStrictResults.length > 1) {
+                const options = this.state.lastStrictResults
+                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
+                    .join('\n');
+                const choice = prompt(`請選擇：\n${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
+                const num = parseInt(choice);
+                if (num >= 1 && num <= this.state.lastStrictResults.length) {
+                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
+                }
+            }
+
             const params = {
                 data,
                 gameDef,
@@ -876,7 +889,8 @@ async initFetch() {
                 excludeNumbers: new Set(),
                 mode: 'strict', // Pattern學派內部邏輯使用
                 packMode: mode, // 'pack_1' 或 'pack_2'
-                targetCount: 5  // 目標注數
+                targetCount: 5, // 目標注數
+                selectedCombo
             };
             
             // 直接呼叫 Pattern V6.1，它會回傳陣列
@@ -895,6 +909,18 @@ async initFetch() {
         }
         // [Fix] AI 學派 V7.0 的直通車邏輯
         if (school === 'ai' && isPack) {
+            let selectedCombo = null;
+            if (this.state.lastStrictResults.length > 1) {
+                const options = this.state.lastStrictResults
+                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
+                    .join('\n');
+                const choice = prompt(`請選擇：\n${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
+                const num = parseInt(choice);
+                if (num >= 1 && num <= this.state.lastStrictResults.length) {
+                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
+                }
+            }
+
             const params = {
                 data,
                 gameDef,
@@ -903,7 +929,8 @@ async initFetch() {
                 random: isRandom,
                 mode: isRandom ? 'random' : 'strict',
                 packMode: mode,
-                targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5
+                targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5,
+                selectedCombo
             };
             
             const results = algoAI(params);
@@ -923,6 +950,7 @@ async initFetch() {
         const excludeSet = new Set();
         const packPool = [];
 
+        const tempStrictResults = [];
         for (let i = 0; i < count; i++) {
             const params = { 
                 data, 
@@ -953,6 +981,10 @@ async initFetch() {
                     if (isPack) packPool.push(n.val); 
                 });
 
+                if (mode === 'strict' && !isPack) {
+                    tempStrictResults.push(result);
+                }
+
                 // 如果不是包牌模式，直接渲染結果
                 if (!isPack) {
                     let rankLabel = `SET ${i + 1}`;
@@ -972,6 +1004,8 @@ async initFetch() {
             }
         }
 
+
+                this.state.lastStrictResults = tempStrictResults;
                 // 包牌模式的後續處理（已廢除 SmartWheel，所有學派都應該自己處理包牌）
         if (isPack) {
             // 如果執行到這裡，表示該學派尚未實作包牌直通車
@@ -1154,6 +1188,3 @@ async initFetch() {
 
 window.app = App;
 window.onload = () => App.init();
-
-
-
