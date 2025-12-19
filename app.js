@@ -894,6 +894,7 @@ async initFetch() {
             return; // 結束執行
         }
         // [Fix] AI 學派 V7.0 的直通車邏輯
+        console.log("🎯 [包牌直通車] 執行中", { school, mode, isPack });
         if (school === 'ai' && isPack) {
             const params = {
                 data,
@@ -905,10 +906,13 @@ async initFetch() {
                 packMode: mode,
                 targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5
             };
+            console.log("📦 [包牌參數] AI學派", JSON.stringify(params, null, 2));
             
             const results = algoAI(params);
+            console.log("📦 [包牌結果] AI學派返回", { isArray: Array.isArray(results), length: results?.length, firstCombo: results[0]?.numbers?.map(n => n.val) });
             
             if (Array.isArray(results)) {
+                    console.log(`🎨 [渲染包牌-${idx+1}]`, { numbers: res.numbers?.map(n => n.val), reason: res.groupReason?.substring(0, 50) });
                 results.forEach((res, idx) => {
                     this.renderRow(res, idx + 1, `<span class="text-amber-600 font-bold">🤖 AI包牌 ${idx + 1}</span>`);
                 });
@@ -924,6 +928,7 @@ async initFetch() {
         const packPool = [];
 
         for (let i = 0; i < count; i++) {
+        console.log("🔄 [Loop開始] 非包牌直通車模式", { count, isPack, isRandom, school });
             const params = { 
                 data, 
                 gameDef, 
@@ -933,6 +938,7 @@ async initFetch() {
                 mode: isRandom ? 'random' : 'strict', // 相容新參數
                 setIndex: i 
             };
+            console.log(`🎲 [Loop-${i+1}] setIndex=${i}`, { random: isRandom, mode: params.mode, school });
             
             let result = null;
 
@@ -941,6 +947,7 @@ async initFetch() {
                 case 'stat':    result = algoStat(params); break;
                 case 'pattern': result = algoPattern(params); break;
                 case 'ai':      result = algoAI(params); break;
+            console.log(`📊 [Loop-${i+1}] ${school}學派返回`, { hasResult: !!result, numbers: result?.numbers?.map(n => n.val) });
                 case 'wuxing':  result = this.algoWuxing(params); break;
             }
 
@@ -1154,11 +1161,3 @@ async initFetch() {
 
 window.app = App;
 window.onload = () => App.init();
-
-
-
-
-
-
-
-
