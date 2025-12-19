@@ -50,7 +50,13 @@ const App = {
         filterPeriod: "", filterYear: "", filterMonth: "",
         profiles: [], user: null, db: null, apiKey: "",
         drawOrder: 'size', // 預設用大小順序顯示
-        lastStrictResults: []
+        lastStrictResults: {
+            lotto: { pattern: [], ai: [] },
+            power: { pattern: [], ai: [] },
+            today: { pattern: [], ai: [] },
+            digit3: { pattern: [], ai: [] },
+            digit4: { pattern: [], ai: [] }
+        }
     },
 
     init() {
@@ -870,78 +876,12 @@ async initFetch() {
 
         // [Fix] 針對關聯學派(Pattern) V6.1 的直通車邏輯
         if (school === 'pattern' && isPack) {
-            let selectedCombo = null;
-            if (this.state.lastStrictResults.length > 1) {
-                const options = this.state.lastStrictResults
-                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
-                    .join('\n');
-                const choice = prompt(`請選擇：\n${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
-                const num = parseInt(choice);
-                if (num >= 1 && num <= this.state.lastStrictResults.length) {
-                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
-                }
-            }
-
-            const params = {
-                data,
-                gameDef,
-                subModeId: this.state.currentSubMode,
-                excludeNumbers: new Set(),
-                mode: 'strict', // Pattern學派內部邏輯使用
-                packMode: mode, // 'pack_1' 或 'pack_2'
-                targetCount: 5, // 目標注數
-                selectedCombo
-            };
-            
-            // 直接呼叫 Pattern V6.1，它會回傳陣列
-            const results = algoPattern(params);
-            
-            // 直接渲染陣列結果，不進入 SmartWheel
-            if (Array.isArray(results)) {
-                results.forEach((res, idx) => {
-                    this.renderRow(res, idx + 1, `<span class="text-purple-600 font-bold">🎯 關聯包牌 ${idx + 1}</span>`);
-                });
-            } else {
-                // 防呆：如果回傳單注（發生錯誤時）
-                this.renderRow(results, 1);
-            }
+            this.renderComboSelector(gameDef, 'pattern', mode);
             return; // 結束執行
         }
         // [Fix] AI 學派 V7.0 的直通車邏輯
         if (school === 'ai' && isPack) {
-            let selectedCombo = null;
-            if (this.state.lastStrictResults.length > 1) {
-                const options = this.state.lastStrictResults
-                    .map((r, idx) => `${idx + 1}. [${r.numbers.map(n => n.val).join(', ')}]`)
-                    .join('\n');
-                const choice = prompt(`請選擇：\n${options}\n\n請輸入 1-${this.state.lastStrictResults.length}`);
-                const num = parseInt(choice);
-                if (num >= 1 && num <= this.state.lastStrictResults.length) {
-                    selectedCombo = this.state.lastStrictResults[num - 1].numbers.map(n => n.val);
-                }
-            }
-
-            const params = {
-                data,
-                gameDef,
-                subModeId: this.state.currentSubMode,
-                excludeNumbers: [],
-                random: isRandom,
-                mode: isRandom ? 'random' : 'strict',
-                packMode: mode,
-                targetCount: (gameDef.type === 'power' && mode === 'pack_1') ? 8 : 5,
-                selectedCombo
-            };
-            
-            const results = algoAI(params);
-            
-            if (Array.isArray(results)) {
-                results.forEach((res, idx) => {
-                    this.renderRow(res, idx + 1, `<span class="text-amber-600 font-bold">🤖 AI包牌 ${idx + 1}</span>`);
-                });
-            } else {
-                this.renderRow(results, 1);
-            }
+            this.renderComboSelector(gameDef, 'ai', mode);
             return; // 不進 SmartWheel
         }
         // --- 以下為其他學派或非包牌模式的舊邏輯 (Loop + SmartWheel) ---
@@ -1135,6 +1075,127 @@ async initFetch() {
         container.innerHTML += html;
     },
 
+    // 卡片選擇 UI：讓用戶從嚴選結果選擇基準組合
+    renderComboSelector(gameDef, school, packMode) {
+        const data = this.state.rawData[this.state.currentGame] || [];
+        const gameKey = this.state.currentGame;
+        
+        // 檢查當前遊戲和學派的嚴選結果
+        if (!this.state.lastStrictResults[gameKey] || 
+            !this.state.lastStrictResults[gameKey][school] ||
+            this.state.lastStrictResults[gameKey][school].length === 0) {
+            
+            // 背景跑 5 次嚴選
+            const excludeSet = new Set();
+            const tempResults = [];
+            
+            for (let i = 0; i < 5; i++) {
+                const params = {
+                    data,
+                    gameDef,
+                    subModeId: this.state.currentSubMode,
+                    excludeNumbers: excludeSet,
+                    mode: 'strict',
+                    setIndex: i
+                };
+                
+                let result = null;
+                if (school === 'pattern') result = algoPattern(params);
+                else if (school === 'ai') result = algoAI(params);
+                
+                if (result && result.numbers) {
+                    tempResults.push(result);
+                    result.numbers.forEach(n => excludeSet.add(n.val));
+                }
+            }
+            
+            // 存入當前遊戲和學派
+            if (!this.state.lastStrictResults[gameKey]) {
+                this.state.lastStrictResults[gameKey] = {};
+            }
+            this.state.lastStrictResults[gameKey][school] = tempResults;
+        }
+        
+        // 取得當前遊戲和學派的結果
+        const results = this.state.lastStrictResults[gameKey][school];
+        
+        // 渲染卡片選擇 UI
+        const container = document.getElementById('prediction-output');
+        const colors = {
+            pattern: 'bg-purple-100 text-purple-700',
+            ai: 'bg-amber-100 text-amber-800'
+        };
+        const colorClass = colors[school] || 'bg-stone-200';
+        
+        let html = `
+          <div class="combo-selector">
+            <div class="selector-title">🎯 請選擇基準組合</div>
+            <div class="combo-cards">
+        `;
+        
+        results.forEach((result, index) => {
+            const label = index === 0 ? '👑 TOP 1' : `TOP ${index + 1}`;
+            const numbersHtml = result.numbers
+                .map(n => `<span class="ball-sm ${colorClass}">${n.val}</span>`)
+                .join('');
+            
+            html += `
+              <div class="combo-card" onclick="app.selectCombo(${index}, '${school}', '${packMode}', '${gameDef.type}')">
+                <div class="card-label">${label}</div>
+                <div class="card-numbers">${numbersHtml}</div>
+              </div>
+            `;
+        });
+        
+        html += `
+            </div>
+          </div>
+        `;
+        
+        container.innerHTML = html;
+    },
+
+    // 選擇組合並執行包牌
+    selectCombo(index, school, packMode, gameType) {
+        const gameKey = this.state.currentGame;
+        const selectedCombo = this.state.lastStrictResults[gameKey][school][index].numbers.map(n => n.val);
+        const gameDef = GAME_CONFIG.GAMES[this.state.currentGame];
+        const data = this.state.rawData[this.state.currentGame] || [];
+        
+        // 清空選擇器 UI
+        const container = document.getElementById('prediction-output');
+        container.innerHTML = '';
+        
+        // 執行包牌
+        const params = {
+            data,
+            gameDef,
+            subModeId: this.state.currentSubMode,
+            excludeNumbers: new Set(),
+            mode: 'strict',
+            packMode,
+            targetCount: (gameType === 'power' && packMode === 'pack_1') ? 8 : 5,
+            selectedCombo
+        };
+        
+        let results = null;
+        if (school === 'pattern') results = algoPattern(params);
+        else if (school === 'ai') results = algoAI(params);
+        
+        // 渲染結果
+        if (Array.isArray(results)) {
+            results.forEach((res, idx) => {
+                const label = school === 'pattern'
+                    ? `<span class="text-purple-600 font-bold">🎯 關聯包牌 ${idx + 1}</span>`
+                    : `<span class="text-amber-600 font-bold">🤖 AI包牌 ${idx + 1}</span>`;
+                this.renderRow(res, idx + 1, label);
+            });
+        } else if (results) {
+            this.renderRow(results, 1);
+        }
+    },
+
+
 
     populateYearSelect() {
         const yearSelect = document.getElementById('search-year');
@@ -1185,6 +1246,96 @@ async initFetch() {
         }
     }
 };
+
+
+// 注入卡片選擇器樣式
+if (!document.getElementById('combo-selector-style')) {
+    document.head.insertAdjacentHTML('beforeend', `
+        <style id="combo-selector-style">
+            .combo-selector {
+                background: linear-gradient(135deg, #fafaf9 0%, #f5f5f4 100%);
+                border-radius: 16px;
+                padding: 20px;
+                margin-bottom: 16px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+                border: 2px solid #e7e5e4;
+            }
+
+            .selector-title {
+                font-size: 16px;
+                font-weight: 700;
+                color: #44403c;
+                margin-bottom: 16px;
+                text-align: center;
+            }
+
+            .combo-cards {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .combo-card {
+                background: white;
+                border: 2px solid #e7e5e4;
+                border-radius: 12px;
+                padding: 16px;
+                cursor: pointer;
+                transition: all 200ms ease;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .combo-card:hover {
+                background: #f0fdf4;
+                border-color: #86efac;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(34, 197, 94, 0.15);
+            }
+
+            .combo-card:active {
+                transform: translateY(0);
+            }
+
+            .card-label {
+                font-size: 14px;
+                font-weight: 700;
+                color: #57534e;
+                min-width: 60px;
+                text-align: center;
+            }
+
+            .card-numbers {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                flex: 1;
+            }
+
+            @media (max-width: 640px) {
+                .combo-selector {
+                    padding: 16px;
+                }
+
+                .selector-title {
+                    font-size: 14px;
+                }
+
+                .combo-card {
+                    padding: 12px;
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                .card-label {
+                    min-width: auto;
+                    text-align: left;
+                }
+            }
+        </style>
+    `);
+}
 
 window.app = App;
 window.onload = () => App.init();
