@@ -893,10 +893,8 @@ async initFetch() {
             }
             return; // 結束執行
         }
-// [Fix] AI 學派 V7.0 的直通車邏輯
-if (school === 'ai' && isPack) {
-    // 🔍 診斷 Log 1
-    console.log('🎯 [包牌直通車] 執行中', { school, isPack, mode });
+        // [Fix] AI 學派 V7.0 的直通車邏輯
+        if (school === 'ai' && isPack) {
             const params = {
                 data,
                 gameDef,
@@ -929,30 +927,24 @@ if (school === 'ai' && isPack) {
 for (let i = 0; i < count; i++) {
     let excludeSet = excludeNumbers;
     if (Array.isArray(excludeNumbers)) {
-        // ... 處理 excludeNumbers
-    }
-    
-    const params = { 
-        data, 
-        gameDef, 
-        subModeId: this.state.currentSubMode, 
-        excludeNumbers: excludeSet,
-        random: isRandom,
-        mode: isRandom ? 'random' : 'strict',
-        setIndex: i
-    };
-    
-    // 🔍 診斷 Log 2
+            const params = { 
+                data, 
+                gameDef, 
+                subModeId: this.state.currentSubMode, 
+                excludeNumbers: excludeSet,
+                random: isRandom, // 相容舊參數
+                mode: isRandom ? 'random' : 'strict', // 相容新參數
+                setIndex: i 
+            };
+              // 🔍 診斷 Log 2（移到 params 構建完成後）
     if (school === 'ai') {
         console.log(`🔄 [Loop ${i}]`, { 
             school, 
             random: params.random, 
             mode: params.mode, 
-            setIndex: params.setIndex,
-            packMode: params.packMode || 'null'
+            setIndex: params.setIndex
         });
     }
-            
             let result = null;
 
             switch (school) {
@@ -1173,13 +1165,5 @@ for (let i = 0; i < count; i++) {
 
 window.app = App;
 window.onload = () => App.init();
-
-
-
-
-
-
-
-
 
 
