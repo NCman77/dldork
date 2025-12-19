@@ -353,7 +353,12 @@ function ai_packCombo({ data, gameDef, packMode, targetCount, mode }) {
     
     const sortedNums = Object.keys(scores).map(Number).sort((a, b) => scores[b] - scores[a]);
     
-    if (packMode === 'pack_1') {
+ if (packMode === 'pack_1') {
+        // 🔍 診斷 Log 4（新增）
+        console.log('📦 [包牌開始]', { 
+            packMode, 
+            前10候選: sortedNums.slice(0, 10).map(n => `${n}:${Math.round(scores[n])}分`)
+        });
         // Pack_1: 使用軟性降權
         const currentScores = { ...scores };
         
@@ -363,18 +368,28 @@ function ai_packCombo({ data, gameDef, packMode, targetCount, mode }) {
                 .sort((a, b) => currentScores[b] - currentScores[a]);
             
             const combo = candidates.slice(0, gameDef.count);
+            // 🔍 診斷 Log 5（新增）
+            console.log(`📦 [組${i+1}]`, {
+                選號: combo,
+                選號分數: combo.map(n => `${n}:${Math.round(currentScores[n])}分`),
+                降權係數: AI_CONFIG.PACK_PENALTY
+            });
             
             // 降權已選號碼
             combo.forEach(n => {
                 currentScores[n] *= AI_CONFIG.PACK_PENALTY;
             });
-            
+                        // 🔍 診斷 Log 6（新增）
+            console.log(`📦 [組${i+1}降權後]`, {
+                降權後分數: combo.map(n => `${n}:${Math.round(currentScores[n])}分`)
+            });
             tickets.push({
                 numbers: combo.sort((a, b) => a - b).map(n => ({ val: n, tag: `趨勢分${Math.round(scores[n])}` })),
                 groupReason: `樂透包牌 ${i + 1}/${targetCount} - 軟性降權策略`,
                 metadata: { version: '7.0', packMode: 'pack_1' }
-            });
+        });
         }
+    }
     } else {
         // Pack_2: 動態溫度 + TopN 策略
         const strategies = AI_CONFIG.PARAMS.lotto.topNRange;
@@ -759,4 +774,5 @@ function ai_arrayToScoreMap(arr, scoreMap) {
     });
     return result;
 }
+
 
