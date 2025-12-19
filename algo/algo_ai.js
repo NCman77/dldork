@@ -35,29 +35,32 @@ const AI_CONFIG = {
             epsilon: 1,
             kPrior: 5,
             temperature: 0.7,
-        topNRange: [10, 15, 20, 30, 50],
-        tempRange: [0.8, 1.5]
+            topNRange: [10, 15, 20, 30, 50],
+            tempRange: [0.8, 1.5]
         },
         power_zone1: {
             h_short: 8,
             h_long: 50,
             epsilon: 1,
             kPrior: 5,
-            temperature: 0.7
+            temperature: 0.7,
+            tempRange: [0.8, 1.5]
         },
         power_zone2: {
             h_short: 15,
             h_long: 80,
             epsilon: 2,
             kPrior: 10,
-            temperature: 0.5
+            temperature: 0.5,
+            tempRange: [0.5, 1.2]
         },
         digit: {
             h_short: 10,
             h_long: 60,
             epsilon: 1,
             kPrior: 8,
-            temperature: 0.6
+            temperature: 0.6,
+            tempRange: [0.7, 1.3]
         }
     },
     
@@ -333,21 +336,16 @@ function ai_packCombo({ data, gameDef, packMode, targetCount, mode }) {
     const sortedNums = Object.keys(scores).map(Number).sort((a, b) => scores[b] - scores[a]);
     
     if (packMode === 'pack_1') {
-        // 降權策略
-        const currentScores = { ...scores };  // 複製分數物件
-
+        // 輪轉組合
         for (let i = 0; i < targetCount; i++) {
-            const combo = ai_pickTopNumbers(currentScores, gameDef.count, new Set());
-
+            const offset = i * Math.floor(sortedNums.length / targetCount);
+            const rotated = [...sortedNums.slice(offset), ...sortedNums.slice(0, offset)];
+            const combo = ai_pickTopNumbers(ai_arrayToScoreMap(rotated, scores), gameDef.count, new Set());
+            
             tickets.push({
                 numbers: combo.map(n => ({ val: n, tag: `趨勢分${scores[n] || 50}` })),
-                groupReason: `樂透包牌 ${i + 1}/${targetCount} - 降權策略`,
+                groupReason: `樂透包牌 ${i + 1}/${targetCount} - 輪轉策略`,
                 metadata: { version: '7.0', packMode: 'pack_1' }
-            });
-
-            // 降權已選號碼
-            combo.forEach(n => {
-                currentScores[n] *= 0.3;
             });
         }
     } else {
@@ -379,18 +377,19 @@ function ai_handleComboSingle({ data, gameDef, excludeNumbers, random, mode, set
         isZone2: false,
         params: AI_CONFIG.PARAMS.lotto
     });
-    
-    // 解析排除號碼
-    const { hardExclude } = ai_parseExcludeNumbers(excludeNumbers);
-    
+
+    // 忽略 excludeNumbers（避免模式互相干擾）
+    const hardExclude = new Set();
+
     // 過濾候選
     const candidates = Object.keys(scores)
         .map(Number)
         .filter(n => !hardExclude.has(n))
         .sort((a, b) => scores[b] - scores[a]);
-    
+
     let combo;
     if (random) {
+        // 隨機模式：使用動態參數
         const params = AI_CONFIG.PARAMS.lotto;
         const topNOptions = params.topNRange;
         const topN = topNOptions[setIndex % topNOptions.length];
@@ -402,15 +401,31 @@ function ai_handleComboSingle({ data, gameDef, excludeNumbers, random, mode, set
         const topCandidates = candidates.slice(0, topN);
         combo = ai_softmaxSample(topCandidates.map(n => ({ num: n, score: scores[n] })), temperature, gameDef.count);
     } else {
-        combo = candidates.slice(0, gameDef.count);
+        // 嚴選模式：貪心加總 + 軟降權策略
+        const currentScores = { ...scores };
+        const PENALTY = 0.7;  // 降權係數
+
+        // 根據 setIndex 決定降權次數
+        for (let i = 0; i < setIndex; i++) {
+            // 選出當前最高分的組合
+            const tempCombo = ai_pickTopNumbers(currentScores, gameDef.count, new Set());
+            // 降權已選號碼
+            tempCombo.forEach(n => {
+                currentScores[n] *= PENALTY;
+            });
+        }
+
+        // 最後一次選出的就是 TOP N 組合
+        combo = ai_pickTopNumbers(currentScores, gameDef.count, new Set());
     }
-    
+
     return {
         numbers: combo.sort((a, b) => a - b).map(n => ({ val: n, tag: `趨勢分${Math.round(scores[n])}` })),
         groupReason: random ? `🎲 隨機推薦 (AI動能導向)` : `👑 AI嚴選 TOP${setIndex + 1}`,
         metadata: { version: '7.0', mode, setIndex }
     };
 }
+
 
 function ai_handlePowerSingle({ data, gameDef, excludeNumbers, random, mode, setIndex }) {
     const zone1Scores = ai_buildCandidateScores({
@@ -420,7 +435,7 @@ function ai_handlePowerSingle({ data, gameDef, excludeNumbers, random, mode, set
         isZone2: false,
         params: AI_CONFIG.PARAMS.power_zone1
     });
-    
+
     const zone2Scores = ai_buildCandidateScores({
         data,
         range: gameDef.zone2,
@@ -428,27 +443,47 @@ function ai_handlePowerSingle({ data, gameDef, excludeNumbers, random, mode, set
         isZone2: true,
         params: AI_CONFIG.PARAMS.power_zone2
     });
-    
-    const { hardExclude } = ai_parseExcludeNumbers(excludeNumbers);
-    
+
+    // 忽略 excludeNumbers
+    const hardExclude = new Set();
+
     const zone1Candidates = Object.keys(zone1Scores)
         .map(Number)
         .filter(n => !hardExclude.has(n))
         .sort((a, b) => zone1Scores[b] - zone1Scores[a]);
-    
+
     const zone2Candidates = Object.keys(zone2Scores)
         .map(Number)
         .sort((a, b) => zone2Scores[b] - zone2Scores[a]);
-    
+
     let zone1Combo, zone2Val;
+
     if (random) {
-        zone1Combo = ai_softmaxSample(zone1Candidates.map(n => ({ num: n, score: zone1Scores[n] })), AI_CONFIG.PARAMS.power_zone1.temperature, 6);
-        zone2Val = ai_softmaxSample(zone2Candidates.map(n => ({ num: n, score: zone2Scores[n] })), AI_CONFIG.PARAMS.power_zone2.temperature, 1)[0];
+        // 隨機模式：動態溫度
+        const params1 = AI_CONFIG.PARAMS.power_zone1;
+        const temp1 = params1.tempRange[0] + Math.random() * (params1.tempRange[1] - params1.tempRange[0]);
+
+        const params2 = AI_CONFIG.PARAMS.power_zone2;
+        const temp2 = params2.tempRange[0] + Math.random() * (params2.tempRange[1] - params2.tempRange[0]);
+
+        zone1Combo = ai_softmaxSample(zone1Candidates.map(n => ({ num: n, score: zone1Scores[n] })), temp1, 6);
+        zone2Val = ai_softmaxSample(zone2Candidates.map(n => ({ num: n, score: zone2Scores[n] })), temp2, 1)[0];
     } else {
-        zone1Combo = zone1Candidates.slice(0, 6);
+        // 嚴選模式：軟降權策略
+        const currentScores = { ...zone1Scores };
+        const PENALTY = 0.7;
+
+        for (let i = 0; i < setIndex; i++) {
+            const tempCombo = ai_pickTopNumbers(currentScores, 6, new Set());
+            tempCombo.forEach(n => {
+                currentScores[n] *= PENALTY;
+            });
+        }
+
+        zone1Combo = ai_pickTopNumbers(currentScores, 6, new Set());
         zone2Val = zone2Candidates[setIndex % zone2Candidates.length];
     }
-    
+
     return {
         numbers: [
             ...zone1Combo.sort((a, b) => a - b).map(n => ({ val: n, tag: `趨勢分${Math.round(zone1Scores[n])}` })),
@@ -459,30 +494,44 @@ function ai_handlePowerSingle({ data, gameDef, excludeNumbers, random, mode, set
     };
 }
 
+
 function ai_handleDigitSingle({ data, gameDef, subModeId, excludeNumbers, random, mode, setIndex }) {
     const digitCount = subModeId || gameDef.count;
     const combo = [];
-    
+
     for (let pos = 0; pos < digitCount; pos++) {
         const scores = ai_buildDigitPosScores({ data, pos, params: AI_CONFIG.PARAMS.digit });
         const candidates = Object.keys(scores).map(Number).sort((a, b) => scores[b] - scores[a]);
-        
+
         let pick;
         if (random) {
-            pick = ai_softmaxSample(candidates.map(n => ({ num: n, score: scores[n] })), AI_CONFIG.PARAMS.digit.temperature, 1)[0];
+            // 隨機模式：動態溫度
+            const params = AI_CONFIG.PARAMS.digit;
+            const temperature = params.tempRange[0] + Math.random() * (params.tempRange[1] - params.tempRange[0]);
+            pick = ai_softmaxSample(candidates.map(n => ({ num: n, score: scores[n] })), temperature, 1)[0];
         } else {
-            pick = candidates[setIndex % Math.min(5, candidates.length)];
+            // 嚴選模式：軟降權策略
+            const currentScores = { ...scores };
+            const PENALTY = 0.7;
+
+            for (let i = 0; i < setIndex; i++) {
+                const tempPick = candidates.sort((a, b) => currentScores[b] - currentScores[a])[0];
+                currentScores[tempPick] *= PENALTY;
+            }
+
+            pick = candidates.sort((a, b) => currentScores[b] - currentScores[a])[0];
         }
-        
+
         combo.push({ val: pick, tag: `趨勢分${Math.round(scores[pick])}` });
     }
-    
+
     return {
         numbers: combo,
         groupReason: random ? `🎲 隨機推薦 (AI動能導向)` : `👑 AI嚴選 TOP${setIndex + 1}`,
         metadata: { version: '7.0', mode, setIndex }
     };
 }
+
 
 // ==========================================
 // [F] 核心演算法 - 候選分數計算
