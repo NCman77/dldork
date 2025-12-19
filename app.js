@@ -925,16 +925,33 @@ if (school === 'ai' && isPack) {
         const excludeSet = new Set();
         const packPool = [];
 
-        for (let i = 0; i < count; i++) {
-            const params = { 
-                data, 
-                gameDef, 
-                subModeId: this.state.currentSubMode, 
-                excludeNumbers: excludeSet,
-                random: isRandom, // 相容舊參數
-                mode: isRandom ? 'random' : 'strict', // 相容新參數
-                setIndex: i 
-            };
+// 🔄 迴圈生成
+for (let i = 0; i < count; i++) {
+    let excludeSet = excludeNumbers;
+    if (Array.isArray(excludeNumbers)) {
+        // ... 處理 excludeNumbers
+    }
+    
+    const params = { 
+        data, 
+        gameDef, 
+        subModeId: this.state.currentSubMode, 
+        excludeNumbers: excludeSet,
+        random: isRandom,
+        mode: isRandom ? 'random' : 'strict',
+        setIndex: i
+    };
+    
+    // 🔍 診斷 Log 2
+    if (school === 'ai') {
+        console.log(`🔄 [Loop ${i}]`, { 
+            school, 
+            random: params.random, 
+            mode: params.mode, 
+            setIndex: params.setIndex,
+            packMode: params.packMode || 'null'
+        });
+    }
             
             let result = null;
 
@@ -1156,6 +1173,7 @@ if (school === 'ai' && isPack) {
 
 window.app = App;
 window.onload = () => App.init();
+
 
 
 
